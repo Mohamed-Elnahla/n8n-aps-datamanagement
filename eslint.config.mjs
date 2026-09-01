@@ -12,6 +12,8 @@ export default [
 			'n8n-nodes-base/node-param-default-wrong-for-options': 'off',
 			// Autodesk's SDK is an explicit requirement; this package targets self-hosted n8n.
 			'@n8n/community-nodes/no-runtime-dependencies': 'off',
+			// The node CLI currently pins a vulnerable uuid through its development-only AI tooling.
+			'@n8n/community-nodes/no-overrides-field': 'off',
 		},
 	},
 ];

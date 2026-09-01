@@ -56,14 +56,19 @@
     "@aps_sdk/data-management": "1.1.4"
   },
   "devDependencies": {
-    "@n8n/node-cli": "0.46.1",
+    "@n8n/node-cli": "0.47.0",
     "@types/node": "^22.0.0",
     "eslint": "^9.0.0",
-    "n8n-workflow": "2.16.0",
+    "n8n-workflow": "2.38.0",
     "typescript": "^5.7.0"
   },
   "peerDependencies": {
     "n8n-workflow": "*"
+  },
+  "overrides": {
+    "@n8n/node-cli": {
+      "uuid": "11.1.1"
+    }
   },
   "engines": {
     "node": ">=20.19"
