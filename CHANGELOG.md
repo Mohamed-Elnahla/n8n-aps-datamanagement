@@ -8,6 +8,8 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Prevented operations such as Get Hubs from trying to extract hidden resource-locator
+  parameters, which caused `Could not find property` errors on n8n 2.36 and later.
 - Updated CI and publishing workflows to Node.js 24 for the current n8n toolchain.
 - Regenerated npm lockfile metadata for clean `npm ci` installations.
 

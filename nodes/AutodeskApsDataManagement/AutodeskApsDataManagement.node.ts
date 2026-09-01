@@ -366,10 +366,8 @@ export class AutodeskApsDataManagement implements INodeType {
 		for (let itemIndex = 0; itemIndex < inputItems.length; itemIndex++) {
 			try {
 				const { client, accessToken, xUserId } = context;
-				const hubId = resourceValue(this.getNodeParameter('hubId', itemIndex, '', { extractValue: true }));
-				const projectId = resourceValue(
-					this.getNodeParameter('projectId', itemIndex, '', { extractValue: true }),
-				);
+				const hubId = resourceValue(this.getNodeParameter('hubId', itemIndex, ''));
+				const projectId = resourceValue(this.getNodeParameter('projectId', itemIndex, ''));
 				const folderId = String(this.getNodeParameter('folderId', itemIndex, ''));
 				const itemId = String(this.getNodeParameter('itemId', itemIndex, ''));
 				const versionId = String(this.getNodeParameter('versionId', itemIndex, ''));
