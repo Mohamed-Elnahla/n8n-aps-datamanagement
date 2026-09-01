@@ -59,7 +59,7 @@
     "@n8n/node-cli": "0.46.1",
     "@types/node": "^22.0.0",
     "eslint": "^9.0.0",
-    "n8n-workflow": "2.16.0",
+    "n8n-workflow": "2.38.0",
     "typescript": "^5.7.0"
   },
   "peerDependencies": {
