@@ -17,28 +17,21 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Node.js and npm registry
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+          # Release builds must not restore a dependency cache containing code
+          # that was produced outside this trusted workflow run.
+          package-manager-cache: false
 
       - name: Install dependencies
         # Publish lifecycle scripts remain enabled later when n8n-node release
         # invokes npm publish. Only dependency installation scripts are skipped.
         run: npm ci --ignore-scripts
-
-      - name: Verify npm publisher account
-        run: |
-          PUBLISHER=$(npm whoami)
-          if [ "$PUBLISHER" != "mohamed.elnahla" ]; then
-            echo "NPM_TOKEN belongs to '$PUBLISHER'; expected 'mohamed.elnahla'"
-            exit 1
-          fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Verify release version
         run: |
@@ -58,7 +51,8 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Publish with n8n release tooling and npm provenance
+      # npm exchanges GitHub's short-lived OIDC identity for publish access.
+      # Do not add NODE_AUTH_TOKEN here: it would make npm fall back to the
+      # deprecated long-lived token flow instead of trusted publishing.
+      - name: Publish with npm trusted publishing and provenance
         run: npm run release
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
