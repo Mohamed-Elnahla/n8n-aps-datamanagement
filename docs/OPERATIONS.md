@@ -93,7 +93,7 @@ Required inputs:
 | --- | --- |
 | ACC Project | Target project ID |
 | Folder ID | Destination Docs folder |
-| Input Binary Field | Input item binary property; defaults to `data` |
+| Input Binary Property Name | Incoming item binary property; defaults to `data` |
 | ACC File Type | Project File or Plan Document |
 
 Optional inputs:
@@ -104,6 +104,8 @@ Optional inputs:
 | Existing Item ID | Creates a new version instead of a new item |
 
 Workflow:
+
+The file must arrive from an upstream n8n node as binary data. The Autodesk APS Data Management node cannot display a local file picker; set **Input Binary Property Name** to the upstream binary property (usually `data`).
 
 1. `createStorage` creates the ACC-controlled storage placeholder.
 2. The node parses the returned storage URN.

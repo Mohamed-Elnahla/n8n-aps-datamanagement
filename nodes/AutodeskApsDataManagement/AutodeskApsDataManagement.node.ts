@@ -201,11 +201,21 @@ const properties: INodeProperties[] = [
 		displayOptions: { show: { operation: ['getDownloadJob'] } },
 	},
 	{
-		displayName: 'Input Binary Field',
+		displayName: 'Binary Input',
+		name: 'binaryInputNotice',
+		type: 'notice',
+		default: '',
+		description: 'This operation reads a binary file from the incoming n8n item. Connect a node that produces binary data (for example, Read/Write Files from Disk, a Form Trigger, or an HTTP Request), then enter that binary property name below. n8n node parameters do not include a local file picker.',
+		displayOptions: { show: { operation: ['uploadFile'] } },
+	},
+	{
+		displayName: 'Input Binary Property Name',
 		name: 'inputBinaryField',
 		type: 'string',
 		default: 'data',
 		required: true,
+		placeholder: 'data',
+		description: 'Name of the binary property on the incoming n8n item that contains the file',
 		displayOptions: { show: { operation: ['uploadFile'] } },
 	},
 	{

@@ -147,7 +147,7 @@ The complete parameter and response guide is in [docs/OPERATIONS.md](docs/OPERAT
 
 ## Upload files
 
-The Upload File operation expects an n8n binary property, an ACC project ID, and a destination folder ID.
+The Upload File operation expects an n8n binary property, an ACC project ID, and a destination folder ID. n8n custom nodes do not display a local file picker: connect a node that produces binary data (for example, **Read/Write Files from Disk**, **Form Trigger**, or **HTTP Request**) and set **Input Binary Property Name** to its output property (usually `data`).
 
 - Leave **Existing Item ID** empty to create a new item and its first version.
 - Set **Existing Item ID** to create a new version of that item.
