@@ -35,7 +35,7 @@ Never add the token to `.npmrc`, `.env`, workflow YAML, issues, logs, or commits
 
 The job:
 
-1. Installs exactly from `package-lock.json` with `npm ci`.
+1. Installs exactly from `package-lock.json` with `npm ci --ignore-scripts`; native scripts from development-only n8n dependencies are unnecessary for lint/build.
 2. Runs `npm whoami` and refuses to continue unless the token belongs to `mohamed.elnahla`.
 3. Verifies that the tag without `v` equals `package.json.version`.
 4. Runs lint and tests.
@@ -55,7 +55,7 @@ npm version patch --no-git-tag-version
 Use `minor` or `major` when appropriate. Then edit `CHANGELOG.md`, run checks, commit, and tag:
 
 ```bash
-npm ci
+npm ci --ignore-scripts
 npm run lint
 npm test
 npm pack --dry-run

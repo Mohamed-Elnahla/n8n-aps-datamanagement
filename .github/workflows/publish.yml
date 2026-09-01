@@ -22,11 +22,13 @@ jobs:
       - name: Set up Node.js and npm registry
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
-        run: npm ci
+        # Publish lifecycle scripts remain enabled later when n8n-node release
+        # invokes npm publish. Only dependency installation scripts are skipped.
+        run: npm ci --ignore-scripts
 
       - name: Verify npm publisher account
         run: |

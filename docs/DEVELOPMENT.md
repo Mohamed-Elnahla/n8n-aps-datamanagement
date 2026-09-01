@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Node.js 22+
+- Node.js 24+ (required by the current n8n development toolchain and `isolated-vm` 7)
 - npm
 - Git
 - A self-hosted/local n8n environment for interactive testing
@@ -11,7 +11,7 @@
 ## Setup
 
 ```bash
-npm ci
+npm ci --ignore-scripts
 npm run lint
 npm test
 ```
@@ -64,7 +64,7 @@ docs/
 ## Quality checks before a pull request
 
 ```bash
-npm ci
+npm ci --ignore-scripts
 npm run lint
 npm test
 npm audit --omit=dev

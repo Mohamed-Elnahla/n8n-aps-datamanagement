@@ -88,7 +88,7 @@ The first public release must have completed successfully on npm. Confirm the pa
 - Restart n8n.
 - Confirm the package exists in the same filesystem/environment used by the running n8n process.
 - Check n8n startup logs for community-node loading errors.
-- Confirm the running n8n/Node.js versions meet the package requirements.
+- Confirm the running n8n/Node.js versions meet the package requirements. Development and CI use Node.js 24 because of the current development toolchain; the published node supports Node.js 20.19+ and executes inside the runtime provided by the compatible self-hosted n8n release.
 
 ### The node loads but credentials fail
 

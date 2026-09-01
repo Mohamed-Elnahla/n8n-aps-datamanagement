@@ -6,6 +6,11 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Updated CI and publishing workflows to Node.js 24 for the current n8n toolchain.
+- Regenerated npm lockfile metadata for clean `npm ci` installations.
+
 ## [0.1.0] - 2026-09-02
 
 ### Added

@@ -38,7 +38,7 @@ npm publisher: `mohamed.elnahla`
 ## Requirements
 
 - Self-hosted n8n with community nodes enabled.
-- Node.js 22 or later for local development.
+- Node.js 24 or later for local development and CI. The current n8n node tooling depends on `isolated-vm` 7, which requires Node.js 24+.
 - An Autodesk APS application with client ID and client secret.
 - The APS application provisioned in the target ACC account.
 - Appropriate Docs permissions for the service account or selected user context.
@@ -204,7 +204,7 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 ```bash
 git clone https://github.com/mohamedelnahla/n8n-aps-datamanagement.git
 cd n8n-aps-datamanagement
-npm ci
+npm ci --ignore-scripts
 npm run lint
 npm test
 npm run dev
