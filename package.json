@@ -1,0 +1,75 @@
+{
+  "name": "n8n-nodes-community-autodesk-aps-data-management",
+  "version": "0.1.0",
+  "description": "Unofficial community-maintained n8n node for Autodesk APS Data Management and Autodesk Construction Cloud Docs",
+  "license": "MIT",
+  "homepage": "https://github.com/mohamedelnahla/n8n-aps-datamanagement#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mohamedelnahla/n8n-aps-datamanagement.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mohamedelnahla/n8n-aps-datamanagement/issues"
+  },
+  "keywords": [
+    "n8n-community-node-package",
+    "community",
+    "unofficial",
+    "n8n",
+    "autodesk",
+    "aps",
+    "acc",
+    "data-management"
+  ],
+  "author": {
+    "name": "Mohamed Elnahla",
+    "email": "mohamedelnahla@users.noreply.github.com"
+  },
+  "scripts": {
+    "build": "n8n-node build",
+    "dev": "n8n-node dev",
+    "lint": "n8n-node lint",
+    "lintfix": "n8n-node lint --fix",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && npm run build",
+    "release": "n8n-node release",
+    "prepublishOnly": "n8n-node prerelease"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "CHANGELOG.md"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "strict": false,
+    "credentials": [
+      "dist/credentials/AutodeskApsApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/AutodeskApsDataManagement/AutodeskApsDataManagement.node.js"
+    ]
+  },
+  "dependencies": {
+    "@aps_sdk/authentication": "1.0.1",
+    "@aps_sdk/autodesk-sdkmanager": "1.0.1",
+    "@aps_sdk/data-management": "1.1.4"
+  },
+  "devDependencies": {
+    "@n8n/node-cli": "0.46.1",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "n8n-workflow": "2.16.0",
+    "typescript": "^5.7.0"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

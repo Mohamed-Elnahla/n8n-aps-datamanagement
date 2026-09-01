@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest an improvement to this community integration
+title: '[Feature]: '
+labels: [enhancement]
+body:
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: What workflow should this enable?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: input
+    id: reference
+    attributes:
+      label: Autodesk or n8n documentation link

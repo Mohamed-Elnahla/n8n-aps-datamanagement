@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.svg text
+*.md text diff=markdown
+package-lock.json text eol=lf

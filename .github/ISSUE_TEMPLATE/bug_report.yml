@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a reproducible problem in the community node
+title: '[Bug]: '
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include APS client secrets, access tokens, signed URLs, or confidential ACC data.
+  - type: input
+    id: package-version
+    attributes:
+      label: Package version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: n8n-version
+    attributes:
+      label: n8n version
+    validations:
+      required: true
+  - type: dropdown
+    id: operation
+    attributes:
+      label: Operation category
+      options:
+        - Authentication
+        - Hub or project
+        - Folder
+        - Item
+        - Version
+        - Upload
+        - Download
+        - Installation or packaging
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem
+      description: Describe expected and actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide a minimal reproduction with all secrets and business data removed.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized error or logs
+      render: text
