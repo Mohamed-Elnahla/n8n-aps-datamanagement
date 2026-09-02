@@ -6,18 +6,26 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-02
+
+### Added
+
+- Added all 25 Autodesk-supported subfolder levels, with only the next level displayed during browsing.
+
+### Changed
+
+- Folder, item, and version selectors now contain only resources of the selectable target type.
+
 ## [0.2.1] - 2026-09-02
 
 ### Added
 
 - Added node version 2 with lazy, level-by-level folder browsing, folder-scoped file lists, and per-file version lists.
 - Added real API pagination to unfiltered folder, file, and version browser dropdowns.
-- Added all 25 Autodesk-supported subfolder levels, with only the next level displayed during browsing.
 
 ### Changed
 
 - New node instances no longer scan the complete project before showing folders, files, or versions.
-- Folder, item, and version selectors now contain only resources of the selectable target type.
 - Preserved version 1 behavior for existing node instances and retained literal/expression **By ID** modes for every identifier.
 
 ## [0.2.0] - 2026-09-02
@@ -62,7 +70,8 @@ The project follows [Semantic Versioning](https://semver.org/).
 - Complete installation, authentication, operation, development, and publishing documentation.
 - GitHub Actions CI and provenance-enabled npm publishing.
 
-[Unreleased]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.1.1...v0.1.2
