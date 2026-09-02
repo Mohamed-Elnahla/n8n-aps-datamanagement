@@ -6,6 +6,12 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-02
+
+### Fixed
+
+- Replaced index-based hub/project association with context-carrying selections across projects, folders, subfolders, items, versions, existing upload items, and execution. Unequal resource counts from multiple projects now retain the correct origin and label.
+
 ## [0.3.1] - 2026-09-02
 
 ### Added
@@ -16,10 +22,6 @@ The project follows [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - Version 3 now reveals only the next subfolder level after its parent has a selection instead of displaying every supported level.
-
-### Fixed
-
-- Replaced index-based hub/project association with context-carrying selections across projects, folders, subfolders, items, versions, existing upload items, and execution. Unequal resource counts from multiple projects now retain the correct origin and label.
 
 ## [0.3.0] - 2026-09-02
 

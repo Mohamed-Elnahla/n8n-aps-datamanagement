@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-community-autodesk-aps-data-management",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Unofficial community-maintained n8n node for Autodesk APS Data Management and Autodesk Construction Cloud Docs",
   "license": "MIT",
   "homepage": "https://github.com/mohamedelnahla/n8n-aps-datamanagement#readme",
