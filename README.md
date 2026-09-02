@@ -111,7 +111,7 @@ Existing version 1 node instances retain the original full-project browser. Upgr
 
 Node version 3 adds native multi-select controls. Every selected list is processed in its saved order. A one-value list is broadcast across longer lists; when two lists both contain multiple values, their lengths must match and values are paired by index. This prevents unintended Cartesian products. Versions 1 and 2 keep their original scalar UI and execution behavior.
 
-Only the first applicable subfolder selector is initially visible. Selecting a folder reveals the next level, and selecting that level reveals one more; the remaining supported levels stay hidden. When a dependent selector combines more than one hub, project, folder, or item context, its labels are prefixed as **Hub › Project › Resource** so identical names remain distinguishable. Stored values remain the original Autodesk IDs.
+Only the first applicable subfolder selector is initially visible. Selecting a folder reveals the next level, and selecting that level reveals one more; the remaining supported levels stay hidden. When a dependent selector combines more than one hub, project, folder, or item context, its labels are prefixed as **Hub › Project › Resource** so identical names remain distinguishable. Each loaded choice carries its originating hub/project context through later selectors and execution, while APS API calls still receive the original Autodesk resource ID. Literal ID expressions remain supported.
 
 ## Output controls
 

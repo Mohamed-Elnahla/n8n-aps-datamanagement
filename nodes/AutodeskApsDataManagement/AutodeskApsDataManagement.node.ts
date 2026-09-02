@@ -119,6 +119,7 @@ const FOLDER_FIELD_OPERATIONS = [...FOLDER_OPERATIONS, 'uploadFile'];
 const LAZY_BROWSER_VERSION = 2;
 const MULTI_INPUT_VERSION = 3;
 const OUTPUT_SOURCE_LEVELS = 10;
+const CONTEXT_VALUE_PREFIX = 'apsctx:';
 // Autodesk Docs supports up to 25 subfolder levels below a top-level folder.
 const SUBFOLDER_LEVELS = 25;
 const SUBFOLDER_PARAMETER_NAMES = Array.from(
@@ -1196,14 +1197,71 @@ function stringParameterValues(value: unknown): string[] {
 		.filter(Boolean);
 }
 
+export interface ContextualSelection {
+	id: string;
+	hubId?: string;
+	projectId?: string;
+	hubName?: string;
+	projectName?: string;
+}
+
+export function encodeContextualSelection(selection: ContextualSelection): string {
+	return `${CONTEXT_VALUE_PREFIX}${encodeURIComponent(JSON.stringify(selection))}`;
+}
+
+export function decodeContextualSelection(value: unknown): ContextualSelection {
+	const text = String(value ?? '').trim();
+	if (!text.startsWith(CONTEXT_VALUE_PREFIX)) return { id: text };
+	try {
+		const parsed = JSON.parse(
+			decodeURIComponent(text.slice(CONTEXT_VALUE_PREFIX.length)),
+		) as Partial<ContextualSelection>;
+		if (typeof parsed.id !== 'string' || !parsed.id.trim()) return { id: text };
+		return {
+			id: parsed.id,
+			...(typeof parsed.hubId === 'string' ? { hubId: parsed.hubId } : {}),
+			...(typeof parsed.projectId === 'string' ? { projectId: parsed.projectId } : {}),
+			...(typeof parsed.hubName === 'string' ? { hubName: parsed.hubName } : {}),
+			...(typeof parsed.projectName === 'string' ? { projectName: parsed.projectName } : {}),
+		};
+	} catch {
+		return { id: text };
+	}
+}
+
+export function contextualExecutionValues(
+	projectSelections: ContextualSelection[],
+	targetSelections: ContextualSelection[],
+): { hubIds: string[]; projectIds: string[] } {
+	const contextualProjectIds =
+		targetSelections.length > 0 && targetSelections.every((selection) => selection.projectId)
+			? targetSelections.map((selection) => selection.projectId as string)
+			: projectSelections.map((selection) => selection.id);
+	const contextualHubIds =
+		targetSelections.length > 0 && targetSelections.every((selection) => selection.hubId)
+			? targetSelections.map((selection) => selection.hubId as string)
+			: projectSelections.length > 0 && projectSelections.every((selection) => selection.hubId)
+				? projectSelections.map((selection) => selection.hubId as string)
+				: [];
+	return { hubIds: contextualHubIds, projectIds: contextualProjectIds };
+}
+
+function getMultiSelections(
+	thisArg: ILoadOptionsFunctions | IExecuteFunctions,
+	name: string,
+	itemIndex?: number,
+): ContextualSelection[] {
+	return stringParameterValues(
+		thisArg.getNodeParameter(name, itemIndex, [], { extractValue: true }),
+	).map(decodeContextualSelection);
+}
+
 function getMultiParameter(
 	thisArg: ILoadOptionsFunctions | IExecuteFunctions,
 	name: string,
 	itemIndex?: number,
 ): string[] {
-	return stringParameterValues(
-		thisArg.getNodeParameter(name, itemIndex, [], { extractValue: true }),
-	);
+	return getMultiSelections(thisArg, name, itemIndex).map((selection) => selection.id);
 }
 
 function broadcastValue<T>(values: T[], index: number): T | undefined {
@@ -1261,6 +1319,88 @@ async function projectContextName(
 	return name;
 }
 
+async function hydrateProjectSelections(
+	client: ApsDataClient,
+	selections: ContextualSelection[],
+	hubIds: string[],
+	requestArgs: ApsRequestArgs,
+	hubNames: Map<string, string>,
+): Promise<ContextualSelection[]> {
+	return await Promise.all(
+		selections.map(async (selection, index) => {
+			if (selection.hubId) return selection;
+			const candidateHubIds =
+				hubIds.length === 1
+					? hubIds
+					: [broadcastValue(hubIds, index), ...hubIds].filter(
+							(hubId, candidateIndex, values): hubId is string =>
+								Boolean(hubId) && values.indexOf(hubId) === candidateIndex,
+						);
+			for (const hubId of candidateHubIds) {
+				try {
+					const response = await client.getProject(hubId, selection.id, requestArgs);
+					return {
+						...selection,
+						hubId,
+						hubName: hubNames.get(hubId) ?? hubId,
+						projectName: displayName(response.data),
+					};
+				} catch {
+					// Try the next selected hub for a legacy/plain project ID.
+				}
+			}
+			return selection;
+		}),
+	);
+}
+
+type ContextResourceKind = 'folder' | 'item' | 'version';
+
+async function hydrateResourceSelections(
+	client: ApsDataClient,
+	selections: ContextualSelection[],
+	projectSelections: ContextualSelection[],
+	hubIds: string[],
+	requestArgs: ApsRequestArgs,
+	hubNames: Map<string, string>,
+	kind: ContextResourceKind,
+): Promise<{ resources: ContextualSelection[]; projects: ContextualSelection[] }> {
+	const projects = await hydrateProjectSelections(
+		client,
+		projectSelections,
+		hubIds,
+		requestArgs,
+		hubNames,
+	);
+	const resources: ContextualSelection[] = [];
+	for (const selection of selections) {
+		if (selection.projectId) {
+			resources.push(selection);
+			continue;
+		}
+		let hydrated = selection;
+		for (const project of projects) {
+			try {
+				if (kind === 'folder') await client.getFolder(project.id, selection.id, requestArgs);
+				else if (kind === 'item') await client.getItem(project.id, selection.id, requestArgs);
+				else await client.getVersion(project.id, selection.id, requestArgs);
+				hydrated = {
+					...selection,
+					hubId: project.hubId,
+					projectId: project.id,
+					hubName: project.hubName,
+					projectName: project.projectName,
+				};
+				break;
+			} catch {
+				// Try the next selected project for a legacy/plain resource ID.
+			}
+		}
+		resources.push(hydrated);
+	}
+	return { resources, projects };
+}
+
 export function contextualOptionName(
 	showContext: boolean,
 	hubName: string,
@@ -1300,13 +1440,19 @@ async function loadProjectsMulti(thisArg: ILoadOptionsFunctions): Promise<INodeP
 		options.push(
 			...(response.data ?? [])
 				.filter(isAccProject)
-				.map((project) => ({
-					name:
-						hubIds.length > 1
-							? `${hubNames.get(hubId) ?? hubId} › ${displayName(project)}`
-							: displayName(project),
-					value: resourceId(project),
-				})),
+				.map((project) => {
+					const hubName = hubNames.get(hubId) ?? hubId;
+					const projectName = displayName(project);
+					return {
+						name: hubIds.length > 1 ? `${hubName} › ${projectName}` : projectName,
+						value: encodeContextualSelection({
+							id: resourceId(project),
+							hubId,
+							hubName,
+							projectName,
+						}),
+					};
+				}),
 		);
 	}
 	return uniqueOptions(options);
@@ -1314,26 +1460,32 @@ async function loadProjectsMulti(thisArg: ILoadOptionsFunctions): Promise<INodeP
 
 async function loadFoldersMulti(thisArg: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 	const hubIds = getMultiParameter(thisArg, 'hubIds');
-	const projectIds = getMultiParameter(thisArg, 'projectIds');
-	if (hubIds.length === 0 || projectIds.length === 0) return [];
+	const configuredProjects = getMultiSelections(thisArg, 'projectIds');
+	if (configuredProjects.length === 0) return [];
 	const credentials = await thisArg.getCredentials('autodeskApsApi');
 	const { client, accessToken, xUserId } = await createApsContext(credentials);
 	const requestArgs = { accessToken, ...(xUserId ? { xUserId } : {}) };
 	const hubNames = await loadHubNameMap(client, requestArgs);
+	const projectSelections = await hydrateProjectSelections(
+		client,
+		configuredProjects,
+		hubIds,
+		requestArgs,
+		hubNames,
+	);
 	const projectNames = new Map<string, string>();
-	const showContext = hubIds.length > 1 || projectIds.length > 1;
+	const showContext = hubIds.length > 1 || projectSelections.length > 1;
 	const options: INodePropertyOptions[] = [];
-	for (let index = 0; index < projectIds.length; index++) {
-		const hubId = broadcastValue(hubIds, index);
+	for (let index = 0; index < projectSelections.length; index++) {
+		const selection = projectSelections[index];
+		const projectId = selection.id;
+		const hubId = selection.hubId ?? broadcastValue(hubIds, index);
 		if (!hubId) continue;
-		const projectName = await projectContextName(
-			client,
-			hubId,
-			projectIds[index],
-			requestArgs,
-			projectNames,
-		);
-		const response = await client.getProjectTopFolders(hubId, projectIds[index], {
+		const projectName =
+			selection.projectName ??
+			(await projectContextName(client, hubId, projectId, requestArgs, projectNames));
+		const hubName = selection.hubName ?? hubNames.get(hubId) ?? hubId;
+		const response = await client.getProjectTopFolders(hubId, projectId, {
 			accessToken,
 			xUserId,
 		});
@@ -1343,21 +1495,30 @@ async function loadFoldersMulti(thisArg: ILoadOptionsFunctions): Promise<INodePr
 				.map((folder) => ({
 					name: contextualOptionName(
 						showContext,
-						hubNames.get(hubId) ?? hubId,
+						hubName,
 						projectName,
 						displayName(folder),
 					),
-					value: resourceId(folder),
+					value: encodeContextualSelection({
+						id: resourceId(folder),
+						hubId,
+						projectId,
+						hubName,
+						projectName,
+					}),
 				})),
 		);
 	}
 	return uniqueOptions(options);
 }
 
-function selectedMultiBrowseFolders(thisArg: ILoadOptionsFunctions | IExecuteFunctions, itemIndex?: number): string[] {
-	let selected = getMultiParameter(thisArg, 'folderIds', itemIndex);
+function selectedMultiBrowseSelections(
+	thisArg: ILoadOptionsFunctions | IExecuteFunctions,
+	itemIndex?: number,
+): ContextualSelection[] {
+	let selected = getMultiSelections(thisArg, 'folderIds', itemIndex);
 	for (let level = 1; level <= SUBFOLDER_LEVELS; level++) {
-		const current = getMultiParameter(thisArg, `subfolderIds${level}`, itemIndex);
+		const current = getMultiSelections(thisArg, `subfolderIds${level}`, itemIndex);
 		if (current.length === 0) break;
 		selected = current;
 	}
@@ -1366,33 +1527,45 @@ function selectedMultiBrowseFolders(thisArg: ILoadOptionsFunctions | IExecuteFun
 
 async function loadDirectResourcesMulti(
 	thisArg: ILoadOptionsFunctions,
-	parentIds: string[],
+	parentSelections: ContextualSelection[],
 	wantedType: 'folders' | 'items',
 ): Promise<INodePropertyOptions[]> {
-	if (parentIds.length === 0) return [];
+	if (parentSelections.length === 0) return [];
 	const hubIds = getMultiParameter(thisArg, 'hubIds');
-	const projectIds = getMultiParameter(thisArg, 'projectIds');
-	if (projectIds.length === 0) return [];
+	const configuredProjects = getMultiSelections(thisArg, 'projectIds');
+	if (configuredProjects.length === 0) return [];
 	const credentials = await thisArg.getCredentials('autodeskApsApi');
 	const { client, accessToken, xUserId } = await createApsContext(credentials);
 	const requestArgs = { accessToken, ...(xUserId ? { xUserId } : {}) };
 	const hubNames = await loadHubNameMap(client, requestArgs);
+	const hydrated = await hydrateResourceSelections(
+		client,
+		parentSelections,
+		configuredProjects,
+		hubIds,
+		requestArgs,
+		hubNames,
+		'folder',
+	);
+	parentSelections = hydrated.resources;
+	const projectSelections = hydrated.projects;
 	const projectNames = new Map<string, string>();
-	const showContext = hubIds.length > 1 || projectIds.length > 1 || parentIds.length > 1;
+	const showContext =
+		hubIds.length > 1 || projectSelections.length > 1 || parentSelections.length > 1;
 	const options: INodePropertyOptions[] = [];
-	for (let index = 0; index < parentIds.length; index++) {
-		const projectId = broadcastValue(projectIds, index);
+	for (let index = 0; index < parentSelections.length; index++) {
+		const parent = parentSelections[index];
+		const fallbackProject = broadcastValue(projectSelections, index);
+		const projectId = parent.projectId ?? fallbackProject?.id;
 		if (!projectId) continue;
-		const hubId = broadcastValue(hubIds, index) ?? '';
-		const projectName = await projectContextName(
-			client,
-			hubId,
-			projectId,
-			requestArgs,
-			projectNames,
-		);
+		const hubId = parent.hubId ?? fallbackProject?.hubId ?? broadcastValue(hubIds, index) ?? '';
+		const projectName =
+			parent.projectName ??
+			fallbackProject?.projectName ??
+			(await projectContextName(client, hubId, projectId, requestArgs, projectNames));
+		const hubName = parent.hubName ?? fallbackProject?.hubName ?? hubNames.get(hubId) ?? hubId;
 		const response = await loadAllPages(async (pageNumber) =>
-			await client.getFolderContents(projectId, parentIds[index], {
+			await client.getFolderContents(projectId, parent.id, {
 				accessToken,
 				xUserId,
 				pageNumber,
@@ -1405,11 +1578,17 @@ async function loadDirectResourcesMulti(
 				.map((resource) => ({
 					name: contextualOptionName(
 						showContext,
-						hubNames.get(hubId) ?? hubId,
+						hubName,
 						projectName,
 						displayName(resource),
 					),
-					value: resourceId(resource),
+					value: encodeContextualSelection({
+						id: resourceId(resource),
+						hubId,
+						projectId,
+						hubName,
+						projectName,
+					}),
 				})),
 		);
 	}
@@ -1423,40 +1602,56 @@ async function loadSubfoldersMulti(
 	const parentName = level === 1 ? 'folderIds' : `subfolderIds${level - 1}`;
 	return await loadDirectResourcesMulti(
 		thisArg,
-		getMultiParameter(thisArg, parentName),
+		getMultiSelections(thisArg, parentName),
 		'folders',
 	);
 }
 
 async function loadItemsMulti(thisArg: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
-	return await loadDirectResourcesMulti(thisArg, selectedMultiBrowseFolders(thisArg), 'items');
+	return await loadDirectResourcesMulti(
+		thisArg,
+		selectedMultiBrowseSelections(thisArg),
+		'items',
+	);
 }
 
 async function loadVersionsMulti(thisArg: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 	const hubIds = getMultiParameter(thisArg, 'hubIds');
-	const projectIds = getMultiParameter(thisArg, 'projectIds');
-	const itemIds = getMultiParameter(thisArg, 'itemIds');
-	if (projectIds.length === 0 || itemIds.length === 0) return [];
+	const configuredProjects = getMultiSelections(thisArg, 'projectIds');
+	let itemSelections = getMultiSelections(thisArg, 'itemIds');
+	if (configuredProjects.length === 0 || itemSelections.length === 0) return [];
 	const credentials = await thisArg.getCredentials('autodeskApsApi');
 	const { client, accessToken, xUserId } = await createApsContext(credentials);
 	const requestArgs = { accessToken, ...(xUserId ? { xUserId } : {}) };
 	const hubNames = await loadHubNameMap(client, requestArgs);
+	const hydrated = await hydrateResourceSelections(
+		client,
+		itemSelections,
+		configuredProjects,
+		hubIds,
+		requestArgs,
+		hubNames,
+		'item',
+	);
+	itemSelections = hydrated.resources;
+	const projectSelections = hydrated.projects;
 	const projectNames = new Map<string, string>();
-	const showContext = hubIds.length > 1 || projectIds.length > 1 || itemIds.length > 1;
+	const showContext =
+		hubIds.length > 1 || projectSelections.length > 1 || itemSelections.length > 1;
 	const options: INodePropertyOptions[] = [];
-	for (let index = 0; index < itemIds.length; index++) {
-		const projectId = broadcastValue(projectIds, index);
+	for (let index = 0; index < itemSelections.length; index++) {
+		const item = itemSelections[index];
+		const fallbackProject = broadcastValue(projectSelections, index);
+		const projectId = item.projectId ?? fallbackProject?.id;
 		if (!projectId) continue;
-		const hubId = broadcastValue(hubIds, index) ?? '';
-		const projectName = await projectContextName(
-			client,
-			hubId,
-			projectId,
-			requestArgs,
-			projectNames,
-		);
+		const hubId = item.hubId ?? fallbackProject?.hubId ?? broadcastValue(hubIds, index) ?? '';
+		const projectName =
+			item.projectName ??
+			fallbackProject?.projectName ??
+			(await projectContextName(client, hubId, projectId, requestArgs, projectNames));
+		const hubName = item.hubName ?? fallbackProject?.hubName ?? hubNames.get(hubId) ?? hubId;
 		const response = await loadAllPages(async (pageNumber) =>
-			await client.getItemVersions(projectId, itemIds[index], {
+			await client.getItemVersions(projectId, item.id, {
 				accessToken,
 				xUserId,
 				pageNumber,
@@ -1473,11 +1668,17 @@ async function loadVersionsMulti(thisArg: ILoadOptionsFunctions): Promise<INodeP
 				return {
 					name: contextualOptionName(
 						showContext,
-						hubNames.get(hubId) ?? hubId,
+						hubName,
 						projectName,
 						versionName,
 					),
-					value: resourceId(version),
+					value: encodeContextualSelection({
+						id: resourceId(version),
+						hubId,
+						projectId,
+						hubName,
+						projectName,
+					}),
 				};
 			}),
 		);
@@ -1546,7 +1747,12 @@ function executionParameterValues(
 	preserveEmpty = false,
 ): unknown[] {
 	const name = thisArg.getNode().typeVersion >= MULTI_INPUT_VERSION ? multiName : legacyName;
-	const values = parameterValues(thisArg.getNodeParameter(name, itemIndex, defaultValue));
+	const values = parameterValues(thisArg.getNodeParameter(name, itemIndex, defaultValue)).map(
+		(value) =>
+			typeof value === 'string' && value.startsWith(CONTEXT_VALUE_PREFIX)
+				? decodeContextualSelection(value).id
+				: value,
+	);
 	return preserveEmpty
 		? values
 		: values.filter((value) => String(value ?? '').trim() !== '');
@@ -1871,9 +2077,97 @@ export class AutodeskApsDataManagement implements INodeType {
 
 		for (let itemIndex = 0; itemIndex < inputItems.length; itemIndex++) {
 			const isMultiVersion = this.getNode().typeVersion >= MULTI_INPUT_VERSION;
+			const configuredHubIds = isMultiVersion ? getMultiParameter(this, 'hubIds', itemIndex) : [];
+			let projectSelections = isMultiVersion
+				? getMultiSelections(this, 'projectIds', itemIndex)
+				: [];
+			let folderSelections =
+				isMultiVersion && FOLDER_FIELD_OPERATIONS.includes(operation)
+					? selectedMultiBrowseSelections(this, itemIndex)
+					: [];
+			let itemSelections =
+				isMultiVersion && ITEM_OPERATIONS.includes(operation)
+					? getMultiSelections(this, 'itemIds', itemIndex)
+					: [];
+			let versionSelections =
+				isMultiVersion && VERSION_OPERATIONS.includes(operation)
+					? getMultiSelections(this, 'versionIds', itemIndex)
+					: [];
+			const selectedTargets =
+				folderSelections.length > 0
+					? folderSelections
+					: itemSelections.length > 0
+						? itemSelections
+						: versionSelections;
+			const needsContextHydration =
+				isMultiVersion &&
+				(projectSelections.some((selection) => !selection.hubId) ||
+					selectedTargets.some((selection) => !selection.projectId));
+			if (needsContextHydration) {
+				const { client, accessToken, xUserId } = context;
+				const requestArgs = { accessToken, ...(xUserId ? { xUserId } : {}) };
+				const hubNames = await loadHubNameMap(client, requestArgs);
+				projectSelections = await hydrateProjectSelections(
+					client,
+					projectSelections,
+					configuredHubIds,
+					requestArgs,
+					hubNames,
+				);
+				if (folderSelections.some((selection) => !selection.projectId)) {
+					folderSelections = (
+						await hydrateResourceSelections(
+							client,
+							folderSelections,
+							projectSelections,
+							configuredHubIds,
+							requestArgs,
+							hubNames,
+							'folder',
+						)
+					).resources;
+				} else if (itemSelections.some((selection) => !selection.projectId)) {
+					itemSelections = (
+						await hydrateResourceSelections(
+							client,
+							itemSelections,
+							projectSelections,
+							configuredHubIds,
+							requestArgs,
+							hubNames,
+							'item',
+						)
+					).resources;
+				} else if (versionSelections.some((selection) => !selection.projectId)) {
+					versionSelections = (
+						await hydrateResourceSelections(
+							client,
+							versionSelections,
+							projectSelections,
+							configuredHubIds,
+							requestArgs,
+							hubNames,
+							'version',
+						)
+					).resources;
+				}
+			}
+			const contextualTargets =
+				folderSelections.length > 0
+					? folderSelections
+					: itemSelections.length > 0
+						? itemSelections
+						: versionSelections.length > 0
+							? versionSelections
+							: projectSelections;
+			const contextualValues = contextualExecutionValues(projectSelections, contextualTargets);
+			const contextualHubValues =
+				contextualValues.hubIds.length > 0
+					? contextualValues.hubIds
+					: executionParameterValues(this, 'hubId', 'hubIds', itemIndex);
 			const folderValues = FOLDER_FIELD_OPERATIONS.includes(operation)
 				? isMultiVersion
-					? selectedMultiBrowseFolders(this, itemIndex)
+					? folderSelections.map((selection) => selection.id)
 					: [selectedExecutionFolder(this, itemIndex)].filter(Boolean)
 				: [];
 			let batches: Array<Record<string, unknown>>;
@@ -1882,7 +2176,7 @@ export class AutodeskApsDataManagement implements INodeType {
 					{
 						name: 'hubId',
 						values: HUB_REQUIRED_OPERATIONS.includes(operation)
-							? executionParameterValues(this, 'hubId', 'hubIds', itemIndex)
+							? contextualHubValues
 							: [],
 						required: HUB_REQUIRED_OPERATIONS.includes(operation),
 						defaultValue: '',
@@ -1890,7 +2184,9 @@ export class AutodeskApsDataManagement implements INodeType {
 					{
 						name: 'projectId',
 						values: PROJECT_FIELD_OPERATIONS.includes(operation)
-							? executionParameterValues(this, 'projectId', 'projectIds', itemIndex)
+							? isMultiVersion
+								? contextualValues.projectIds
+								: executionParameterValues(this, 'projectId', 'projectIds', itemIndex)
 							: [],
 						required: PROJECT_FIELD_OPERATIONS.includes(operation),
 						defaultValue: '',
@@ -1904,7 +2200,9 @@ export class AutodeskApsDataManagement implements INodeType {
 					{
 						name: 'itemId',
 						values: ITEM_OPERATIONS.includes(operation)
-							? executionParameterValues(this, 'itemId', 'itemIds', itemIndex)
+							? isMultiVersion
+								? itemSelections.map((selection) => selection.id)
+								: executionParameterValues(this, 'itemId', 'itemIds', itemIndex)
 							: [],
 						required: ITEM_OPERATIONS.includes(operation),
 						defaultValue: '',
@@ -1912,7 +2210,9 @@ export class AutodeskApsDataManagement implements INodeType {
 					{
 						name: 'versionId',
 						values: VERSION_OPERATIONS.includes(operation)
-							? executionParameterValues(this, 'versionId', 'versionIds', itemIndex)
+							? isMultiVersion
+								? versionSelections.map((selection) => selection.id)
+								: executionParameterValues(this, 'versionId', 'versionIds', itemIndex)
 							: [],
 						required: VERSION_OPERATIONS.includes(operation),
 						defaultValue: '',

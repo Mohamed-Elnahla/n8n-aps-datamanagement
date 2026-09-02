@@ -5,7 +5,10 @@ const { displayParameter } = require('n8n-workflow');
 const {
 	AutodeskApsDataManagement,
 	contextualOptionName,
+	contextualExecutionValues,
 	createOrderedBatches,
+	decodeContextualSelection,
+	encodeContextualSelection,
 	outputJsonRecords,
 } = require('../dist/nodes/AutodeskApsDataManagement/AutodeskApsDataManagement.node.js');
 
@@ -93,6 +96,34 @@ test('dependent option labels add hub and project context only when needed', () 
 		contextualOptionName(true, 'Hub A', 'Project A', 'Folder A'),
 		'Hub A › Project A › Folder A',
 	);
+});
+
+test('contextual selections preserve their exact hub and project through every level', () => {
+	const selection = {
+		id: 'folder-a2',
+		hubId: 'hub-a',
+		projectId: 'project-a',
+		hubName: 'Hub A',
+		projectName: 'Project A',
+	};
+	assert.deepEqual(decodeContextualSelection(encodeContextualSelection(selection)), selection);
+	assert.deepEqual(decodeContextualSelection('raw-folder-id'), { id: 'raw-folder-id' });
+});
+
+test('execution derives projects from resource context when projects contribute unequal counts', () => {
+	const projectSelections = [
+		{ id: 'project-a', hubId: 'hub-a' },
+		{ id: 'project-b', hubId: 'hub-b' },
+	];
+	const folderSelections = [
+		{ id: 'folder-a1', hubId: 'hub-a', projectId: 'project-a' },
+		{ id: 'folder-a2', hubId: 'hub-a', projectId: 'project-a' },
+		{ id: 'folder-b1', hubId: 'hub-b', projectId: 'project-b' },
+	];
+	assert.deepEqual(contextualExecutionValues(projectSelections, folderSelections), {
+		hubIds: ['hub-a', 'hub-a', 'hub-b'],
+		projectIds: ['project-a', 'project-a', 'project-b'],
+	});
 });
 
 test('ordered batches reject ambiguous list lengths instead of making a Cartesian product', () => {

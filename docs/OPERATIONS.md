@@ -39,7 +39,7 @@ List execution uses ordered zip-and-broadcast behavior:
 - Lists with more than one value must have the same length.
 - The node never creates a Cartesian product implicitly.
 
-For folder browsing, only the next subfolder selector is shown after its parent contains a selection; unused deeper levels remain hidden. The deepest non-empty subfolder level is the target list. When selected inputs span multiple contexts, dependent project, folder, file, and version choices are labelled `Hub › Project › Resource` while retaining their original Autodesk ID values. Versions 1 and 2 retain their saved scalar parameters and behavior.
+For folder browsing, only the next subfolder selector is shown after its parent contains a selection; unused deeper levels remain hidden. The deepest non-empty subfolder level is the target list. When selected inputs span multiple contexts, dependent project, folder, file, and version choices are labelled `Hub › Project › Resource`. Loaded choices carry exact hub/project context through every later level, so unequal selections such as two folders from one project and one from another remain correctly associated. The context is decoded before execution and APS receives the original resource IDs. Literal ID expressions use the explicit hub/project lists as their fallback context. Versions 1 and 2 retain their saved scalar parameters and behavior.
 
 ## Output modes
 
