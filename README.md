@@ -101,7 +101,7 @@ New nodes use a lazy path browser. Choose the hub and project first, select a to
 - Item/file fields list only files in the selected folder.
 - Version fields load versions only after a file is selected, showing the version number and creation date while storing the version ID.
 - Upload File's optional **Existing Item ID** lists files in the selected destination folder so an existing file can be selected when creating a new version.
-- Eight optional subfolder levels are available. For a deeper path, select **By ID** and supply the final folder ID or an expression.
+- Twenty-five optional subfolder levels are available, matching the Autodesk Docs product limit. Only the next applicable level is shown. **By ID** remains available for literal IDs and expressions.
 
 **By ID** accepts both literal IDs and expressions such as `{{$json.folderId}}`, `{{$json.itemId}}`, or `{{$json.versionId}}`.
 

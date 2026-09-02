@@ -24,7 +24,9 @@ Node version 2 uses dependent lazy resource locators:
 - Upload File's optional Existing Item ID is scoped to the selected destination folder; leaving it empty creates a new item.
 - List searches may load all pages of only the current folder or selected item so filtering is complete. Opening an unfiltered list fetches one APS page at a time.
 
-Eight optional subfolder levels are exposed. Deeper targets remain supported through the Folder ID field's **By ID** mode. All folder, item, existing-item, and version identifier fields retain literal-ID and n8n-expression support.
+Twenty-five optional subfolder levels are exposed, matching the Autodesk Docs product limit. Only the next applicable level is shown. All folder, item, existing-item, and version identifier fields retain literal-ID and n8n-expression support.
+
+Every selector returns only its target resource type: folder fields contain folders, item fields contain files/items, and version fields contain versions. Context rows of another resource type are not included.
 
 Existing version 1 node instances retain the original full-project browser until upgraded, preventing saved workflows from changing behavior automatically.
 

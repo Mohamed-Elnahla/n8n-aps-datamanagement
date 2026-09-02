@@ -115,7 +115,8 @@ const PROJECT_FIELD_OPERATIONS = [...PROJECT_OPERATIONS, 'uploadFile', 'download
 const HUB_FIELD_OPERATIONS = [...PROJECT_OPERATIONS, 'getHub', 'getHubProjects', 'uploadFile', 'downloadFile'];
 const FOLDER_FIELD_OPERATIONS = [...FOLDER_OPERATIONS, 'uploadFile'];
 const LAZY_BROWSER_VERSION = 2;
-const SUBFOLDER_LEVELS = 8;
+// Autodesk Docs supports up to 25 subfolder levels below a top-level folder.
+const SUBFOLDER_LEVELS = 25;
 const SUBFOLDER_PARAMETER_NAMES = Array.from(
 	{ length: SUBFOLDER_LEVELS },
 	(_, index) => `subfolderId${index + 1}`,
@@ -675,10 +676,12 @@ async function searchTopFoldersLazy(
 		browser.projectId,
 		browser.requestArgs,
 	);
-	const entries = (response.data ?? []).map((folder) => ({
-		name: `Folder — ${displayName(folder)}`,
-		value: resourceId(folder),
-	}));
+	const entries = (response.data ?? [])
+		.filter((resource) => resourceType(resource) === 'folders')
+		.map((folder) => ({
+			name: `Folder — ${displayName(folder)}`,
+			value: resourceId(folder),
+		}));
 	return paginateBrowserResults(entries, filter, paginationToken);
 }
 
@@ -747,6 +750,28 @@ async function searchSubfolderLevel(
 	);
 }
 
+type FolderListSearchMethod = (
+	this: ILoadOptionsFunctions,
+	filter?: string,
+	paginationToken?: string,
+) => Promise<INodeListSearchResult>;
+
+function createSubfolderSearchMethods(): Record<string, FolderListSearchMethod> {
+	const methods: Record<string, FolderListSearchMethod> = {};
+	for (let level = 1; level <= SUBFOLDER_LEVELS; level++) {
+		methods[`searchSubfolders${level}`] = async function (
+			this: ILoadOptionsFunctions,
+			filter?: string,
+			paginationToken?: string,
+		) {
+			return await searchSubfolderLevel(this, level, filter, paginationToken);
+		};
+	}
+	return methods;
+}
+
+const subfolderSearchMethods = createSubfolderSearchMethods();
+
 async function searchItemsLazy(
 	thisArg: ILoadOptionsFunctions,
 	filter?: string,
@@ -781,6 +806,7 @@ async function searchVersionsLazy(
 			}),
 		);
 		const entries = [...(response.data ?? [])]
+			.filter((resource) => resourceType(resource) === 'versions')
 			.sort(
 				(left, right) =>
 					Number(versionDisplay(right).number) - Number(versionDisplay(left).number),
@@ -802,6 +828,7 @@ async function searchVersionsLazy(
 		pageLimit: 200,
 	});
 	const results = [...(response.data ?? [])]
+		.filter((resource) => resourceType(resource) === 'versions')
 		.sort(
 			(left, right) =>
 				Number(versionDisplay(right).number) - Number(versionDisplay(left).number),
@@ -880,6 +907,7 @@ export class AutodeskApsDataManagement implements INodeType {
 			},
 		},
 		listSearch: {
+			...subfolderSearchMethods,
 			async searchHubs(this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
 				const credentials = await this.getCredentials('autodeskApsApi');
 				const { client, accessToken, xUserId } = await createApsContext(credentials);
@@ -927,17 +955,12 @@ export class AutodeskApsDataManagement implements INodeType {
 				}
 				const browser = await loadProjectBrowser(this);
 				if (!browser) return { results: [] };
-				const entries = [
-					...browser.scan.folders.map((folder) => ({
+				const entries = browser.scan.folders
+					.filter((folder) => folder.type === 'folders')
+					.map((folder) => ({
 						name: `Folder — ${folder.path}`,
 						value: folder.id,
-					})),
-					...browser.scan.files.map((file) => ({
-						name: `File — ${file.path}`,
-						value: file.id,
-						disabled: true,
-					})),
-				];
+					}));
 				return paginateBrowserResults(entries, filter, paginationToken);
 			},
 			async searchItems(
@@ -950,17 +973,12 @@ export class AutodeskApsDataManagement implements INodeType {
 				}
 				const browser = await loadProjectBrowser(this);
 				if (!browser) return { results: [] };
-				const entries = [
-					...browser.scan.folders.map((folder) => ({
-						name: `Folder — ${folder.path}`,
-						value: folder.id,
-						disabled: true,
-					})),
-					...browser.scan.files.map((file) => ({
+				const entries = browser.scan.files
+					.filter((file) => file.type === 'items')
+					.map((file) => ({
 						name: `File — ${file.path}`,
 						value: file.id,
-					})),
-				];
+					}));
 				return paginateBrowserResults(entries, filter, paginationToken);
 			},
 			async searchVersions(
@@ -974,11 +992,10 @@ export class AutodeskApsDataManagement implements INodeType {
 				const browser = await loadProjectBrowser(this);
 				if (!browser) return { results: [] };
 				const entries: INodeListSearchResult['results'] = [];
-				const files = [...browser.scan.files].sort((left, right) =>
-					left.path.localeCompare(right.path),
-				);
+				const files = [...browser.scan.files]
+					.filter((file) => file.type === 'items')
+					.sort((left, right) => left.path.localeCompare(right.path));
 				for (const file of files) {
-					entries.push({ name: `File — ${file.path}`, value: file.id, disabled: true });
 					const versions = await loadAllPages(async (pageNumber) =>
 						await browser.client.getItemVersions(browser.projectId, file.id, {
 							...browser.requestArgs,
@@ -986,9 +1003,13 @@ export class AutodeskApsDataManagement implements INodeType {
 							pageLimit: 200,
 						}),
 					);
-					const sortedVersions = [...(versions.data ?? [])].sort((left, right) =>
-						Number(versionDisplay(right).number) - Number(versionDisplay(left).number),
-					);
+					const sortedVersions = [...(versions.data ?? [])]
+						.filter((resource) => resourceType(resource) === 'versions')
+						.sort(
+							(left, right) =>
+								Number(versionDisplay(right).number) -
+								Number(versionDisplay(left).number),
+						);
 					for (const version of sortedVersions) {
 						const details = versionDisplay(version);
 						entries.push({
@@ -998,30 +1019,6 @@ export class AutodeskApsDataManagement implements INodeType {
 					}
 				}
 				return paginateBrowserResults(entries, filter, paginationToken, false);
-			},
-			async searchSubfolders1(this: ILoadOptionsFunctions, filter?: string, paginationToken?: string) {
-				return await searchSubfolderLevel(this, 1, filter, paginationToken);
-			},
-			async searchSubfolders2(this: ILoadOptionsFunctions, filter?: string, paginationToken?: string) {
-				return await searchSubfolderLevel(this, 2, filter, paginationToken);
-			},
-			async searchSubfolders3(this: ILoadOptionsFunctions, filter?: string, paginationToken?: string) {
-				return await searchSubfolderLevel(this, 3, filter, paginationToken);
-			},
-			async searchSubfolders4(this: ILoadOptionsFunctions, filter?: string, paginationToken?: string) {
-				return await searchSubfolderLevel(this, 4, filter, paginationToken);
-			},
-			async searchSubfolders5(this: ILoadOptionsFunctions, filter?: string, paginationToken?: string) {
-				return await searchSubfolderLevel(this, 5, filter, paginationToken);
-			},
-			async searchSubfolders6(this: ILoadOptionsFunctions, filter?: string, paginationToken?: string) {
-				return await searchSubfolderLevel(this, 6, filter, paginationToken);
-			},
-			async searchSubfolders7(this: ILoadOptionsFunctions, filter?: string, paginationToken?: string) {
-				return await searchSubfolderLevel(this, 7, filter, paginationToken);
-			},
-			async searchSubfolders8(this: ILoadOptionsFunctions, filter?: string, paginationToken?: string) {
-				return await searchSubfolderLevel(this, 8, filter, paginationToken);
 			},
 		},
 	};
