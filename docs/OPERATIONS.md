@@ -8,12 +8,12 @@ The node wraps the getter surface of `DataManagementClient` from `@aps_sdk/data-
 | --- | --- |
 | ACC Hub | Search by display name or supply a `b.`-prefixed Data Management hub ID |
 | ACC Project | Search by display name or supply a `b.`-prefixed Data Management project ID |
-| Folder ID | Data Management folder URN |
+| Folder ID | Browse by full path or supply a Data Management folder URN/expression |
 | Item ID | Data Management lineage/item URN |
 | Version ID | URL-safe Data Management version URN |
 | Additional Options (JSON) | SDK optional arguments for the selected getter |
 
-Hub and project list results show human-readable names; the stored value is the Autodesk ID. The **By ID** mode accepts n8n expressions.
+Hub and project list results show human-readable names; the stored value is the Autodesk ID. The **By ID** mode accepts n8n expressions. The folder browser scans all accessible top folders, displays folders and files by full path, allows folder selection, and returns the folder ID to execution logic. Files are visible but disabled because these operations require a folder ID.
 
 ## Getter mapping
 
@@ -25,6 +25,7 @@ Hub and project list results show human-readable names; the stored value is the 
 | Get Project | `getProject` | Hub, project |
 | Get Project Hub | `getProjectHub` | Hub, project |
 | Get Project Top Folders | `getProjectTopFolders` | Hub, project |
+| Get Project Full Tree | `getProjectTopFolders` + recursive `getFolderContents` | Hub, project |
 | Get Download Details | `getDownload` | Project, download ID |
 | Get Download Job | `getDownloadJob` | Project, job ID |
 | Get Folder | `getFolder` | Project, folder |
@@ -81,9 +82,22 @@ SDK methods support different option sets. Unsupported options may be ignored by
 
 ## Pagination
 
-Getter output is returned as the SDK/API response for that call. Except for the project list selector, the node does not automatically fetch every page. Use the method's `pageNumber`/`pageLimit` options and n8n looping when full pagination is required.
+The **Load All Pages** toggle is available for every paginated getter exposed by the SDK:
+
+- Get Hub Projects
+- Get Folder Contents
+- Search Folder
+- Get Item Versions
+
+When enabled, the node starts at page 0, requests the largest supported page size where applicable, and stops when APS omits the next-page link. It combines `data` and `included`, deduplicates resources by type and ID, and adds `pagination.allPagesLoaded` and `pagination.pagesLoaded`. When disabled, `pageNumber` and `pageLimit` in Additional Options continue to control the single call.
 
 The searchable project selector internally pages through accessible projects and filters results to ACC projects.
+
+## Full trees
+
+**Get Folder Contents → Scan Full Folder Tree** uses a breadth-first traversal starting at the selected folder. **Get Project Full Tree** starts from every accessible top-level folder in the selected hub/project. Traversal is sequential to respect APS request limits, automatically fetches all pages for every folder, and guards against duplicate/cyclic folder IDs.
+
+Both outputs contain a nested `tree`, flat `folders` and `files` arrays, deduplicated APS `included` resources, and a `summary`. Each entry contains convenient `id`, `type`, `name`, `path`, `depth`, and `parentId` fields, while `resource` retains the complete APS JSON:API resource. Folder-content filters are ignored during recursive traversal because they can hide subfolders and produce an incomplete tree; non-filter options such as `includeHidden` still apply.
 
 ## Upload File
 

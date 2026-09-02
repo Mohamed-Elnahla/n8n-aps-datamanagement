@@ -6,6 +6,13 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Added **Load All Pages** to every paginated getter exposed by the node.
+- Added a searchable folder/file hierarchy browser with folder-ID selection and expression support.
+- Added recursive full-tree scanning to Get Folder Contents.
+- Added Get Project Full Tree with nested and flat folder/file outputs.
+
 ## [0.1.2] - 2026-09-02
 
 ### Fixed

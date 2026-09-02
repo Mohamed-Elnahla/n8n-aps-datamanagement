@@ -88,12 +88,14 @@ See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) for scopes, ACC provisionin
 
 ## Resource selection
 
-Hub and project fields provide two modes:
+Hub, project, and folder fields provide two modes:
 
 - **From List**: searchable, with human-readable account/project names.
 - **By ID**: accepts a literal Data Management ID or an expression such as `{{$json.projectId}}`.
 
 To browse projects, choose an ACC hub first. When a project ID comes from another node, switch Project to **By ID**; the hub can remain empty for operations whose APS endpoint only requires a project ID.
+
+The folder browser scans the selected project's hierarchy and shows searchable full paths. Folders are selectable and store their Autodesk ID; files are shown for context but disabled because folder operations require a folder ID. Choose the hub and project first. **By ID** accepts both literal IDs and expressions such as `{{$json.folderId}}`.
 
 ## Operations
 
@@ -105,6 +107,7 @@ To browse projects, choose an ACC hub first. When a project ID comes from anothe
 - Get Project
 - Get Project Hub
 - Get Project Top Folders
+- Get Project Full Tree
 - Get Download Details
 - Get Download Job
 
@@ -179,12 +182,25 @@ Example:
 
 Only include options supported by the selected SDK method. See Autodesk's Data Management API reference and the installed SDK declarations.
 
+## Pagination and full-tree scans
+
+Enable **Load All Pages** on Get Hub Projects, Get Folder Contents, Search Folder, or Get Item Versions to fetch pages until APS no longer returns a next-page link. The combined response deduplicates resources by type and ID and reports `pagination.pagesLoaded`.
+
+On **Get Folder Contents**, enable **Scan Full Folder Tree** to traverse the selected folder and every descendant. **Get Project Full Tree** performs the same traversal for all accessible top-level project folders. Both return:
+
+- `tree`: nested folders and files;
+- `folders` and `files`: flat lists that are convenient in later n8n nodes;
+- `included`: deduplicated included version resources from APS;
+- `summary`: folder, file, and total counts.
+
+Every tree node promotes `id`, `type`, `name`, `path`, `depth`, and `parentId`, and retains the complete original APS object in `resource`. Recursive scans always load every page and intentionally ignore content filters that could hide folders and make a branch incomplete.
+
 ## Example workflow pattern
 
 1. **Get Hubs** to discover connected ACC accounts.
 2. **Get Hub Projects** to retrieve ACC projects.
-3. **Get Project Top Folders** to find Project Files or Plans.
-4. **Get Folder Contents** to navigate items and subfolders.
+3. **Get Project Top Folders** or **Get Project Full Tree** to find Project Files or Plans.
+4. **Get Folder Contents** to navigate items and subfolders, optionally with a full-tree scan.
 5. Pass returned IDs into later node instances using **By ID** expressions.
 6. Use **Upload File** or **Download File** for binary transfer.
 

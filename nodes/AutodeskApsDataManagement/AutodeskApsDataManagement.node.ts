@@ -22,9 +22,11 @@ import {
 	TypeVersion,
 } from '@aps_sdk/data-management';
 import {
+	buildFolderTree,
 	createApsContext,
 	displayName,
 	isAccProject,
+	loadAllPages,
 	resourceId,
 	resourceValue,
 } from './apsClient';
@@ -37,6 +39,7 @@ const GET_OPERATIONS = [
 	['Get Project', 'getProject'],
 	['Get Project Hub', 'getProjectHub'],
 	['Get Project Top Folders', 'getProjectTopFolders'],
+	['Get Project Full Tree', 'getProjectTree'],
 	['Get Download Details', 'getDownload'],
 	['Get Download Job', 'getDownloadJob'],
 	['Get Folder', 'getFolder'],
@@ -99,7 +102,18 @@ const HUB_REQUIRED_OPERATIONS = [
 	'getProject',
 	'getProjectHub',
 	'getProjectTopFolders',
+	'getProjectTree',
 ];
+
+const PAGINATED_OPERATIONS = [
+	'getHubProjects',
+	'getFolderContents',
+	'getFolderSearch',
+	'getItemVersions',
+];
+const PROJECT_FIELD_OPERATIONS = [...PROJECT_OPERATIONS, 'uploadFile', 'downloadFile'];
+const HUB_FIELD_OPERATIONS = [...PROJECT_OPERATIONS, 'getHub', 'getHubProjects', 'uploadFile', 'downloadFile'];
+const FOLDER_FIELD_OPERATIONS = [...FOLDER_OPERATIONS, 'uploadFile'];
 
 const hubProperty: INodeProperties = {
 	displayName: 'ACC Hub',
@@ -118,7 +132,7 @@ const hubProperty: INodeProperties = {
 		{ displayName: 'By ID', name: 'id', type: 'string', placeholder: 'b.account-guid' },
 	],
 	displayOptions: {
-		show: { operation: [...PROJECT_OPERATIONS, 'getHub', 'getHubProjects', 'uploadFile', 'downloadFile'] },
+		show: { operation: HUB_FIELD_OPERATIONS },
 	},
 };
 
@@ -139,7 +153,7 @@ const projectProperty: INodeProperties = {
 		},
 		{ displayName: 'By ID', name: 'id', type: 'string', placeholder: 'b.project-guid' },
 	],
-	displayOptions: { show: { operation: [...PROJECT_OPERATIONS, 'uploadFile', 'downloadFile'] } },
+	displayOptions: { show: { operation: PROJECT_FIELD_OPERATIONS } },
 };
 
 const properties: INodeProperties[] = [
@@ -160,11 +174,51 @@ const properties: INodeProperties[] = [
 	{
 		displayName: 'Folder ID',
 		name: 'folderId',
-		type: 'string',
-		default: '',
+		type: 'resourceLocator',
+		default: { mode: 'list', value: '' },
 		required: true,
-		placeholder: 'urn:adsk.wipprod:fs.folder:co....',
-		displayOptions: { show: { operation: [...FOLDER_OPERATIONS, 'uploadFile'] } },
+		description:
+			'Browse project folders and files by path, or supply a folder ID or expression from a previous node',
+		typeOptions: { loadOptionsDependsOn: ['hubId.value', 'projectId.value'] },
+		modes: [
+			{
+				displayName: 'Browse',
+				name: 'list',
+				type: 'list',
+				typeOptions: {
+					searchListMethod: 'searchFolders',
+					searchable: true,
+					slowLoadNotice: {
+						message: 'Large projects can take time to scan. Use "By ID" when you already know the folder ID.',
+						timeout: 10_000,
+					},
+				},
+			},
+			{
+				displayName: 'By ID',
+				name: 'id',
+				type: 'string',
+				placeholder: 'urn:adsk.wipprod:fs.folder:co....',
+			},
+		],
+		displayOptions: { show: { operation: FOLDER_FIELD_OPERATIONS } },
+	},
+	{
+		displayName: 'Load All Pages',
+		name: 'returnAll',
+		type: 'boolean',
+		default: false,
+		description: 'Whether to return all results or only up to a given limit',
+		displayOptions: { show: { operation: PAGINATED_OPERATIONS } },
+	},
+	{
+		displayName: 'Scan Full Folder Tree',
+		name: 'scanFullTree',
+		type: 'boolean',
+		default: false,
+		description:
+			'Whether to recursively scan every subfolder. All pages are loaded automatically and results include a nested tree plus flat folder and file lists.',
+		displayOptions: { show: { operation: ['getFolderContents'] } },
 	},
 	{
 		displayName: 'Item ID',
@@ -336,7 +390,7 @@ export class AutodeskApsDataManagement implements INodeType {
 				const { client, accessToken, xUserId } = await createApsContext(credentials);
 				const query = (filter ?? '').toLowerCase();
 				const results: Array<{ name: string; value: string }> = [];
-				for (let pageNumber = 0; pageNumber < 100; pageNumber++) {
+				for (let pageNumber = 0; ; pageNumber++) {
 					const response = await client.getHubProjects(hubId, {
 						accessToken,
 						xUserId,
@@ -350,9 +404,49 @@ export class AutodeskApsDataManagement implements INodeType {
 							.filter((project) => displayName(project).toLowerCase().includes(query))
 							.map((project) => ({ name: displayName(project), value: resourceId(project) })),
 					);
-					if (projects.length < 200) break;
+					const next = response.links?.next?.href;
+					if (!next) break;
 				}
 				return { results };
+			},
+			async searchFolders(
+				this: ILoadOptionsFunctions,
+				filter?: string,
+				paginationToken?: string,
+			): Promise<INodeListSearchResult> {
+				const hubId = resourceValue(this.getNodeParameter('hubId', undefined, { extractValue: true }));
+				const projectId = resourceValue(
+					this.getNodeParameter('projectId', undefined, { extractValue: true }),
+				);
+				if (!hubId || !projectId) return { results: [] };
+				const credentials = await this.getCredentials('autodeskApsApi');
+				const { client, accessToken, xUserId } = await createApsContext(credentials);
+				const requestArgs = { accessToken, ...(xUserId ? { xUserId } : {}) };
+				const topFolders = await client.getProjectTopFolders(hubId, projectId, requestArgs);
+				const scan = await buildFolderTree(client, projectId, topFolders.data ?? [], requestArgs);
+				const query = (filter ?? '').trim().toLowerCase();
+				const entries = [
+					...scan.folders.map((folder) => ({
+						name: `Folder — ${folder.path}`,
+						value: folder.id,
+					})),
+					...scan.files.map((file) => ({
+						name: `File — ${file.path}`,
+						value: file.id,
+						disabled: true,
+					})),
+				]
+					.filter((entry) => entry.name.toLowerCase().includes(query))
+					.sort((left, right) => left.name.localeCompare(right.name));
+				const offset = Number.parseInt(paginationToken ?? '0', 10) || 0;
+				const pageSize = 200;
+				const results = entries.slice(offset, offset + pageSize);
+				return {
+					results,
+					...(offset + pageSize < entries.length
+						? { paginationToken: String(offset + pageSize) }
+						: {}),
+				};
 			},
 		},
 	};
@@ -376,9 +470,15 @@ export class AutodeskApsDataManagement implements INodeType {
 		for (let itemIndex = 0; itemIndex < inputItems.length; itemIndex++) {
 			try {
 				const { client, accessToken, xUserId } = context;
-				const hubId = resourceValue(this.getNodeParameter('hubId', itemIndex, ''));
-				const projectId = resourceValue(this.getNodeParameter('projectId', itemIndex, ''));
-				const folderId = String(this.getNodeParameter('folderId', itemIndex, ''));
+				const hubId = HUB_FIELD_OPERATIONS.includes(operation)
+					? resourceValue(this.getNodeParameter('hubId', itemIndex, ''))
+					: '';
+				const projectId = PROJECT_FIELD_OPERATIONS.includes(operation)
+					? resourceValue(this.getNodeParameter('projectId', itemIndex, ''))
+					: '';
+				const folderId = FOLDER_FIELD_OPERATIONS.includes(operation)
+					? resourceValue(this.getNodeParameter('folderId', itemIndex, ''))
+					: '';
 				const itemId = String(this.getNodeParameter('itemId', itemIndex, ''));
 				const versionId = String(this.getNodeParameter('versionId', itemIndex, ''));
 				const rawOptions = this.getNodeParameter('additionalOptions', itemIndex, '{}');
@@ -388,6 +488,10 @@ export class AutodeskApsDataManagement implements INodeType {
 					accessToken,
 					...(xUserId ? { xUserId } : {}),
 				};
+				const returnAll = Boolean(this.getNodeParameter('returnAll', itemIndex, false));
+				const allPageArgs: Record<string, unknown> = { ...optionalArgs };
+				delete allPageArgs.pageNumber;
+				delete allPageArgs.pageLimit;
 				if (HUB_REQUIRED_OPERATIONS.includes(operation) && !hubId) {
 					throw new NodeOperationError(this.getNode(), 'ACC Hub is required for this operation', {
 						itemIndex,
@@ -403,29 +507,98 @@ export class AutodeskApsDataManagement implements INodeType {
 						break;
 					}
 					case 'getHubProjects': {
-						const response = await client.getHubProjects(hubId, optionalArgs);
+						const response = returnAll
+							? await loadAllPages(async (pageNumber) =>
+								await client.getHubProjects(hubId, {
+									...allPageArgs,
+									pageNumber,
+									pageLimit: 200,
+								}),
+							)
+							: await client.getHubProjects(hubId, optionalArgs);
 						result = { ...response, data: (response.data ?? []).filter(isAccProject) };
 						break;
 					}
 					case 'getProject': result = await client.getProject(hubId, projectId, optionalArgs); break;
 					case 'getProjectHub': result = await client.getProjectHub(hubId, projectId, optionalArgs); break;
 					case 'getProjectTopFolders': result = await client.getProjectTopFolders(hubId, projectId, optionalArgs); break;
+					case 'getProjectTree': {
+						const topFolders = await client.getProjectTopFolders(hubId, projectId, optionalArgs);
+						const tree = await buildFolderTree(
+							client,
+							projectId,
+							topFolders.data ?? [],
+							allPageArgs,
+						);
+						result = {
+							projectId,
+							hubId,
+							jsonapi: topFolders.jsonapi,
+							links: topFolders.links,
+							...tree,
+						};
+						break;
+					}
 					case 'getDownload': result = await client.getDownload(projectId, String(this.getNodeParameter('downloadId', itemIndex)), optionalArgs); break;
 					case 'getDownloadJob': result = await client.getDownloadJob(projectId, String(this.getNodeParameter('jobId', itemIndex)), optionalArgs); break;
 					case 'getFolder': result = await client.getFolder(projectId, folderId, optionalArgs); break;
-					case 'getFolderContents': result = await client.getFolderContents(projectId, folderId, optionalArgs); break;
+					case 'getFolderContents': {
+						const scanFullTree = Boolean(
+							this.getNodeParameter('scanFullTree', itemIndex, false),
+						);
+						if (scanFullTree) {
+							const root = await client.getFolder(projectId, folderId, optionalArgs);
+							const tree = await buildFolderTree(
+								client,
+								projectId,
+								root.data ? [root.data] : [],
+								allPageArgs,
+							);
+							result = { projectId, root: root.data, ...tree };
+						} else if (returnAll) {
+							result = await loadAllPages(async (pageNumber) =>
+								await client.getFolderContents(projectId, folderId, {
+									...allPageArgs,
+									pageNumber,
+									pageLimit: 200,
+								}),
+							);
+						} else {
+							result = await client.getFolderContents(projectId, folderId, optionalArgs);
+						}
+						break;
+					}
 					case 'getFolderParent': result = await client.getFolderParent(projectId, folderId, optionalArgs); break;
 					case 'getFolderRefs': result = await client.getFolderRefs(projectId, folderId, optionalArgs); break;
 					case 'getFolderRelationshipsLinks': result = await client.getFolderRelationshipsLinks(projectId, folderId, optionalArgs); break;
 					case 'getFolderRelationshipsRefs': result = await client.getFolderRelationshipsRefs(folderId, projectId, optionalArgs); break;
-					case 'getFolderSearch': result = await client.getFolderSearch(projectId, folderId, optionalArgs); break;
+					case 'getFolderSearch':
+						result = returnAll
+							? await loadAllPages(async (pageNumber) =>
+								await client.getFolderSearch(projectId, folderId, {
+									...allPageArgs,
+									pageNumber,
+								}),
+							)
+							: await client.getFolderSearch(projectId, folderId, optionalArgs);
+						break;
 					case 'getItem': result = await client.getItem(projectId, itemId, optionalArgs); break;
 					case 'getItemParentFolder': result = await client.getItemParentFolder(projectId, itemId, optionalArgs); break;
 					case 'getItemRefs': result = await client.getItemRefs(projectId, itemId, optionalArgs); break;
 					case 'getItemRelationshipsLinks': result = await client.getItemRelationshipsLinks(projectId, itemId, optionalArgs); break;
 					case 'getItemRelationshipsRefs': result = await client.getItemRelationshipsRefs(projectId, itemId, optionalArgs); break;
 					case 'getItemTip': result = await client.getItemTip(projectId, itemId, optionalArgs); break;
-					case 'getItemVersions': result = await client.getItemVersions(projectId, itemId, optionalArgs); break;
+					case 'getItemVersions':
+						result = returnAll
+							? await loadAllPages(async (pageNumber) =>
+								await client.getItemVersions(projectId, itemId, {
+									...allPageArgs,
+									pageNumber,
+									pageLimit: 200,
+								}),
+							)
+							: await client.getItemVersions(projectId, itemId, optionalArgs);
+						break;
 					case 'getVersion': result = await client.getVersion(projectId, versionId, optionalArgs); break;
 					case 'getVersionDownloadFormats': result = await client.getVersionDownloadFormats(projectId, versionId, optionalArgs); break;
 					case 'getVersionDownloads': result = await client.getVersionDownloads(projectId, versionId, optionalArgs); break;
