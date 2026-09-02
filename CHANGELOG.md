@@ -6,6 +6,8 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-02
+
 ### Added
 
 - Added **Load All Pages** to every paginated getter exposed by the node.
@@ -46,7 +48,8 @@ The project follows [Semantic Versioning](https://semver.org/).
 - Complete installation, authentication, operation, development, and publishing documentation.
 - GitHub Actions CI and provenance-enabled npm publishing.
 
-[Unreleased]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/releases/tag/v0.1.0
