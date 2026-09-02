@@ -6,6 +6,16 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Added node version 2 with lazy, level-by-level folder browsing, folder-scoped file lists, and per-file version lists.
+- Added real API pagination to unfiltered folder, file, and version browser dropdowns.
+
+### Changed
+
+- New node instances no longer scan the complete project before showing folders, files, or versions.
+- Preserved version 1 behavior for existing node instances and retained literal/expression **By ID** modes for every identifier.
+
 ## [0.2.0] - 2026-09-02
 
 ### Added

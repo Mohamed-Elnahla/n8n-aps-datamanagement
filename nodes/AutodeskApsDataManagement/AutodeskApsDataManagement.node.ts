@@ -114,6 +114,19 @@ const PAGINATED_OPERATIONS = [
 const PROJECT_FIELD_OPERATIONS = [...PROJECT_OPERATIONS, 'uploadFile', 'downloadFile'];
 const HUB_FIELD_OPERATIONS = [...PROJECT_OPERATIONS, 'getHub', 'getHubProjects', 'uploadFile', 'downloadFile'];
 const FOLDER_FIELD_OPERATIONS = [...FOLDER_OPERATIONS, 'uploadFile'];
+const LAZY_BROWSER_VERSION = 2;
+const SUBFOLDER_LEVELS = 8;
+const SUBFOLDER_PARAMETER_NAMES = Array.from(
+	{ length: SUBFOLDER_LEVELS },
+	(_, index) => `subfolderId${index + 1}`,
+);
+const FOLDER_PATH_PARAMETER_NAMES = ['folderId', ...SUBFOLDER_PARAMETER_NAMES];
+const BROWSE_FOLDER_OPERATIONS = [
+	...new Set([...FOLDER_FIELD_OPERATIONS, ...ITEM_OPERATIONS, ...VERSION_OPERATIONS]),
+];
+const OPTIONAL_BROWSE_FOLDER_OPERATIONS = [
+	...new Set([...ITEM_OPERATIONS, ...VERSION_OPERATIONS]),
+];
 
 const hubProperty: INodeProperties = {
 	displayName: 'ACC Hub',
@@ -155,6 +168,111 @@ const projectProperty: INodeProperties = {
 	],
 	displayOptions: { show: { operation: PROJECT_FIELD_OPERATIONS } },
 };
+
+function folderLocatorModes(searchListMethod: string): NonNullable<INodeProperties['modes']> {
+	return [
+		// eslint-disable-next-line n8n-nodes-base/node-param-default-missing
+		{
+			displayName: 'Browse',
+			name: 'list',
+			type: 'list',
+			placeholder: 'Select a folder...',
+			typeOptions: { searchListMethod, searchable: true },
+		},
+		// eslint-disable-next-line n8n-nodes-base/node-param-default-missing
+		{
+			displayName: 'By ID',
+			name: 'id',
+			type: 'string',
+			placeholder: 'urn:adsk.wipprod:fs.folder:co....',
+		},
+	];
+}
+
+function lazyRootFolderProperty(
+	operations: string[],
+	required: boolean,
+	displayNameValue: string,
+): INodeProperties {
+	return {
+		displayName: displayNameValue,
+		name: 'folderId',
+		type: 'resourceLocator',
+		default: { mode: 'list', value: '' },
+		required,
+		description: required
+			? 'Select a top-level folder, continue through the subfolder fields, or supply the final folder ID/expression By ID'
+			: 'Optional folder scope for lazy browsing. Leave empty when supplying the item or version By ID.',
+		typeOptions: { loadOptionsDependsOn: ['hubId.value', 'projectId.value'] },
+		modes: folderLocatorModes('searchFolders'),
+		displayOptions: {
+			show: { '@version': [LAZY_BROWSER_VERSION], operation: operations },
+		},
+	};
+}
+
+function lazySubfolderProperties(): INodeProperties[] {
+	return SUBFOLDER_PARAMETER_NAMES.map((name, index) => {
+		const previousName = FOLDER_PATH_PARAMETER_NAMES[index];
+		const level = index + 1;
+		return {
+			displayName: `Subfolder Level ${level}`,
+			name,
+			type: 'resourceLocator',
+			default: { mode: 'list', value: '' },
+			description: 'Optional. Select a direct child of the folder above to continue deeper.',
+			typeOptions: {
+				loadOptionsDependsOn: ['hubId.value', 'projectId.value', `${previousName}.value`],
+			},
+			modes: folderLocatorModes(`searchSubfolders${level}`),
+			displayOptions: {
+				show: {
+					'@version': [LAZY_BROWSER_VERSION],
+					operation: BROWSE_FOLDER_OPERATIONS,
+					[`${previousName}.value`]: [{ _cnd: { exists: true } }],
+				},
+			},
+		};
+	});
+}
+
+function itemLocatorProperty(operations: string[], required: boolean): INodeProperties {
+	return {
+		displayName: required ? 'Item ID' : 'File to Browse',
+		name: 'itemId',
+		type: 'resourceLocator',
+		default: { mode: 'list', value: '' },
+		required,
+		description: required
+			? 'Choose a file in the selected folder or supply an item/file ID or expression'
+			: 'Choose a file to load its versions, or leave empty when supplying the Version ID directly',
+		typeOptions: {
+			loadOptionsDependsOn: [
+				'hubId.value',
+				'projectId.value',
+				...FOLDER_PATH_PARAMETER_NAMES.map((name) => `${name}.value`),
+			],
+		},
+		modes: [
+			{
+				displayName: 'Browse',
+				name: 'list',
+				type: 'list',
+				placeholder: 'Select a file...',
+				typeOptions: { searchListMethod: 'searchItems', searchable: true },
+			},
+			{
+				displayName: 'By ID',
+				name: 'id',
+				type: 'string',
+				placeholder: 'urn:adsk.wipprod:dm.lineage:...',
+			},
+		],
+		displayOptions: {
+			show: { '@version': [LAZY_BROWSER_VERSION], operation: operations },
+		},
+	};
+}
 
 const properties: INodeProperties[] = [
 	{
@@ -201,8 +319,11 @@ const properties: INodeProperties[] = [
 				placeholder: 'urn:adsk.wipprod:fs.folder:co....',
 			},
 		],
-		displayOptions: { show: { operation: FOLDER_FIELD_OPERATIONS } },
+		displayOptions: { show: { '@version': [1], operation: FOLDER_FIELD_OPERATIONS } },
 	},
+	lazyRootFolderProperty(FOLDER_FIELD_OPERATIONS, true, 'Folder ID'),
+	lazyRootFolderProperty(OPTIONAL_BROWSE_FOLDER_OPERATIONS, false, 'Browse Folder'),
+	...lazySubfolderProperties(),
 	{
 		displayName: 'Load All Pages',
 		name: 'returnAll',
@@ -249,8 +370,10 @@ const properties: INodeProperties[] = [
 				placeholder: 'urn:adsk.wipprod:dm.lineage:...',
 			},
 		],
-		displayOptions: { show: { operation: ITEM_OPERATIONS } },
+		displayOptions: { show: { '@version': [1], operation: ITEM_OPERATIONS } },
 	},
+	itemLocatorProperty(ITEM_OPERATIONS, true),
+	itemLocatorProperty(VERSION_OPERATIONS, false),
 	{
 		displayName: 'Version ID',
 		name: 'versionId',
@@ -281,7 +404,37 @@ const properties: INodeProperties[] = [
 				placeholder: 'urn:adsk.wipprod:fs.file:vf....?version=1',
 			},
 		],
-		displayOptions: { show: { operation: VERSION_OPERATIONS } },
+		displayOptions: { show: { '@version': [1], operation: VERSION_OPERATIONS } },
+	},
+	{
+		displayName: 'Version ID',
+		name: 'versionId',
+		type: 'resourceLocator',
+		default: { mode: 'list', value: '' },
+		required: true,
+		description:
+			'Choose a version of the selected file, or supply a version ID or expression from a previous node',
+		typeOptions: {
+			loadOptionsDependsOn: ['hubId.value', 'projectId.value', 'itemId.value'],
+		},
+		modes: [
+			{
+				displayName: 'Browse',
+				name: 'list',
+				type: 'list',
+				placeholder: 'Select a version...',
+				typeOptions: { searchListMethod: 'searchVersions', searchable: true },
+			},
+			{
+				displayName: 'By ID',
+				name: 'id',
+				type: 'string',
+				placeholder: 'urn:adsk.wipprod:fs.file:vf....?version=1',
+			},
+		],
+		displayOptions: {
+			show: { '@version': [LAZY_BROWSER_VERSION], operation: VERSION_OPERATIONS },
+		},
 	},
 	{
 		displayName: 'Download ID',
@@ -318,6 +471,39 @@ const properties: INodeProperties[] = [
 		displayOptions: { show: { operation: ['uploadFile'] } },
 	},
 	{
+		displayName: 'Existing Item ID',
+		name: 'existingItemId',
+		type: 'resourceLocator',
+		default: { mode: 'list', value: '' },
+		description:
+			'Choose an existing file in the selected folder to upload a new version, supply its item ID/expression, or leave empty to create a new item',
+		typeOptions: {
+			loadOptionsDependsOn: [
+				'hubId.value',
+				'projectId.value',
+				...FOLDER_PATH_PARAMETER_NAMES.map((name) => `${name}.value`),
+			],
+		},
+		modes: [
+			{
+				displayName: 'Browse',
+				name: 'list',
+				type: 'list',
+				placeholder: 'Select an existing file...',
+				typeOptions: { searchListMethod: 'searchItems', searchable: true },
+			},
+			{
+				displayName: 'By ID',
+				name: 'id',
+				type: 'string',
+				placeholder: 'urn:adsk.wipprod:dm.lineage:...',
+			},
+		],
+		displayOptions: {
+			show: { '@version': [LAZY_BROWSER_VERSION], operation: ['uploadFile'] },
+		},
+	},
+	{
 		displayName: 'File Name',
 		name: 'fileName',
 		type: 'string',
@@ -350,7 +536,7 @@ const properties: INodeProperties[] = [
 				placeholder: 'urn:adsk.wipprod:dm.lineage:...',
 			},
 		],
-		displayOptions: { show: { operation: ['uploadFile'] } },
+		displayOptions: { show: { '@version': [1], operation: ['uploadFile'] } },
 	},
 	{
 		displayName: 'ACC File Type',
@@ -424,6 +610,215 @@ async function loadProjectBrowser(thisArg: ILoadOptionsFunctions) {
 	return { client, projectId, requestArgs, scan };
 }
 
+function usesLazyBrowser(thisArg: ILoadOptionsFunctions | IExecuteFunctions): boolean {
+	return thisArg.getNode().typeVersion >= LAZY_BROWSER_VERSION;
+}
+
+function resourceType(resource: unknown): string {
+	if (!resource || typeof resource !== 'object') return '';
+	return String((resource as { type?: unknown }).type ?? '');
+}
+
+function collectionHasNextPage(response: unknown): boolean {
+	if (!response || typeof response !== 'object') return false;
+	const links = (response as { links?: unknown }).links;
+	if (!links || typeof links !== 'object') return false;
+	const next = (links as { next?: unknown }).next;
+	if (typeof next === 'string') return next.length > 0;
+	return Boolean(next && typeof next === 'object' && (next as { href?: unknown }).href);
+}
+
+function selectedBrowseFolder(thisArg: ILoadOptionsFunctions): string {
+	let selected = '';
+	for (const parameterName of FOLDER_PATH_PARAMETER_NAMES) {
+		const value = resourceValue(
+			thisArg.getNodeParameter(parameterName, undefined, { extractValue: true }),
+		).trim();
+		if (!value) break;
+		selected = value;
+	}
+	return selected;
+}
+
+function selectedExecutionFolder(thisArg: IExecuteFunctions, itemIndex: number): string {
+	let selected = resourceValue(thisArg.getNodeParameter('folderId', itemIndex, '')).trim();
+	if (!usesLazyBrowser(thisArg)) return selected;
+	for (const parameterName of SUBFOLDER_PARAMETER_NAMES) {
+		const value = resourceValue(thisArg.getNodeParameter(parameterName, itemIndex, '')).trim();
+		if (!value) break;
+		selected = value;
+	}
+	return selected;
+}
+
+async function loadLazyBrowserContext(thisArg: ILoadOptionsFunctions) {
+	const hubId = resourceValue(thisArg.getNodeParameter('hubId', undefined, { extractValue: true }));
+	const projectId = resourceValue(
+		thisArg.getNodeParameter('projectId', undefined, { extractValue: true }),
+	);
+	if (!projectId) return undefined;
+	const credentials = await thisArg.getCredentials('autodeskApsApi');
+	const { client, accessToken, xUserId } = await createApsContext(credentials);
+	const requestArgs = { accessToken, ...(xUserId ? { xUserId } : {}) };
+	return { client, hubId, projectId, requestArgs };
+}
+
+async function searchTopFoldersLazy(
+	thisArg: ILoadOptionsFunctions,
+	filter?: string,
+	paginationToken?: string,
+): Promise<INodeListSearchResult> {
+	const browser = await loadLazyBrowserContext(thisArg);
+	if (!browser?.hubId) return { results: [] };
+	const response = await browser.client.getProjectTopFolders(
+		browser.hubId,
+		browser.projectId,
+		browser.requestArgs,
+	);
+	const entries = (response.data ?? []).map((folder) => ({
+		name: `Folder — ${displayName(folder)}`,
+		value: resourceId(folder),
+	}));
+	return paginateBrowserResults(entries, filter, paginationToken);
+}
+
+async function searchDirectFolderResources(
+	thisArg: ILoadOptionsFunctions,
+	parentFolderId: string,
+	wantedType: 'folders' | 'items',
+	filter?: string,
+	paginationToken?: string,
+): Promise<INodeListSearchResult> {
+	const browser = await loadLazyBrowserContext(thisArg);
+	if (!browser || !parentFolderId) return { results: [] };
+	const query = (filter ?? '').trim();
+	if (query) {
+		const response = await loadAllPages(async (pageNumber) =>
+			await browser.client.getFolderContents(browser.projectId, parentFolderId, {
+				...browser.requestArgs,
+				pageNumber,
+				pageLimit: 200,
+			}),
+		);
+		const entries = (response.data ?? [])
+			.filter((resource) => resourceType(resource) === wantedType)
+			.map((resource) => ({
+				name: `${wantedType === 'folders' ? 'Folder' : 'File'} — ${displayName(resource)}`,
+				value: resourceId(resource),
+			}));
+		return paginateBrowserResults(entries, query, paginationToken);
+	}
+
+	const pageNumber = Number.parseInt(paginationToken ?? '0', 10) || 0;
+	const response = await browser.client.getFolderContents(browser.projectId, parentFolderId, {
+		...browser.requestArgs,
+		pageNumber,
+		pageLimit: 200,
+	});
+	const results = (response.data ?? [])
+		.filter((resource) => resourceType(resource) === wantedType)
+		.map((resource) => ({
+			name: `${wantedType === 'folders' ? 'Folder' : 'File'} — ${displayName(resource)}`,
+			value: resourceId(resource),
+		}))
+		.sort((left, right) => left.name.localeCompare(right.name));
+	return {
+		results,
+		...(collectionHasNextPage(response) ? { paginationToken: String(pageNumber + 1) } : {}),
+	};
+}
+
+async function searchSubfolderLevel(
+	thisArg: ILoadOptionsFunctions,
+	level: number,
+	filter?: string,
+	paginationToken?: string,
+): Promise<INodeListSearchResult> {
+	const parentName = FOLDER_PATH_PARAMETER_NAMES[level - 1];
+	const parentFolderId = resourceValue(
+		thisArg.getNodeParameter(parentName, undefined, { extractValue: true }),
+	).trim();
+	return await searchDirectFolderResources(
+		thisArg,
+		parentFolderId,
+		'folders',
+		filter,
+		paginationToken,
+	);
+}
+
+async function searchItemsLazy(
+	thisArg: ILoadOptionsFunctions,
+	filter?: string,
+	paginationToken?: string,
+): Promise<INodeListSearchResult> {
+	return await searchDirectFolderResources(
+		thisArg,
+		selectedBrowseFolder(thisArg),
+		'items',
+		filter,
+		paginationToken,
+	);
+}
+
+async function searchVersionsLazy(
+	thisArg: ILoadOptionsFunctions,
+	filter?: string,
+	paginationToken?: string,
+): Promise<INodeListSearchResult> {
+	const browser = await loadLazyBrowserContext(thisArg);
+	const itemId = resourceValue(
+		thisArg.getNodeParameter('itemId', undefined, { extractValue: true }),
+	).trim();
+	if (!browser || !itemId) return { results: [] };
+	const query = (filter ?? '').trim();
+	if (query) {
+		const response = await loadAllPages(async (pageNumber) =>
+			await browser.client.getItemVersions(browser.projectId, itemId, {
+				...browser.requestArgs,
+				pageNumber,
+				pageLimit: 200,
+			}),
+		);
+		const entries = [...(response.data ?? [])]
+			.sort(
+				(left, right) =>
+					Number(versionDisplay(right).number) - Number(versionDisplay(left).number),
+			)
+			.map((version) => {
+				const details = versionDisplay(version);
+				return {
+					name: `Version ${details.number} — ${details.date}`,
+					value: resourceId(version),
+				};
+			});
+		return paginateBrowserResults(entries, query, paginationToken, false);
+	}
+
+	const pageNumber = Number.parseInt(paginationToken ?? '0', 10) || 0;
+	const response = await browser.client.getItemVersions(browser.projectId, itemId, {
+		...browser.requestArgs,
+		pageNumber,
+		pageLimit: 200,
+	});
+	const results = [...(response.data ?? [])]
+		.sort(
+			(left, right) =>
+				Number(versionDisplay(right).number) - Number(versionDisplay(left).number),
+		)
+		.map((version) => {
+			const details = versionDisplay(version);
+			return {
+				name: `Version ${details.number} — ${details.date}`,
+				value: resourceId(version),
+			};
+		});
+	return {
+		results,
+		...(collectionHasNextPage(response) ? { paginationToken: String(pageNumber + 1) } : {}),
+	};
+}
+
 function versionDisplay(version: unknown): { number: string; date: string } {
 	if (!version || typeof version !== 'object') return { number: '?', date: 'Unknown date' };
 	const attributes = (version as { attributes?: unknown }).attributes;
@@ -448,7 +843,8 @@ export class AutodeskApsDataManagement implements INodeType {
 			dark: 'file:AutodeskApsDataManagement.dark.svg',
 		},
 		group: ['transform'],
-		version: 1,
+		version: [1, LAZY_BROWSER_VERSION],
+		defaultVersion: LAZY_BROWSER_VERSION,
 		subtitle: '={{$parameter["operation"]}}',
 		description:
 			'Unofficial community node to read, upload, and download Autodesk Construction Cloud Docs data',
@@ -526,6 +922,9 @@ export class AutodeskApsDataManagement implements INodeType {
 				filter?: string,
 				paginationToken?: string,
 			): Promise<INodeListSearchResult> {
+				if (usesLazyBrowser(this)) {
+					return await searchTopFoldersLazy(this, filter, paginationToken);
+				}
 				const browser = await loadProjectBrowser(this);
 				if (!browser) return { results: [] };
 				const entries = [
@@ -546,6 +945,9 @@ export class AutodeskApsDataManagement implements INodeType {
 				filter?: string,
 				paginationToken?: string,
 			): Promise<INodeListSearchResult> {
+				if (usesLazyBrowser(this)) {
+					return await searchItemsLazy(this, filter, paginationToken);
+				}
 				const browser = await loadProjectBrowser(this);
 				if (!browser) return { results: [] };
 				const entries = [
@@ -566,6 +968,9 @@ export class AutodeskApsDataManagement implements INodeType {
 				filter?: string,
 				paginationToken?: string,
 			): Promise<INodeListSearchResult> {
+				if (usesLazyBrowser(this)) {
+					return await searchVersionsLazy(this, filter, paginationToken);
+				}
 				const browser = await loadProjectBrowser(this);
 				if (!browser) return { results: [] };
 				const entries: INodeListSearchResult['results'] = [];
@@ -593,6 +998,30 @@ export class AutodeskApsDataManagement implements INodeType {
 					}
 				}
 				return paginateBrowserResults(entries, filter, paginationToken, false);
+			},
+			async searchSubfolders1(this: ILoadOptionsFunctions, filter?: string, paginationToken?: string) {
+				return await searchSubfolderLevel(this, 1, filter, paginationToken);
+			},
+			async searchSubfolders2(this: ILoadOptionsFunctions, filter?: string, paginationToken?: string) {
+				return await searchSubfolderLevel(this, 2, filter, paginationToken);
+			},
+			async searchSubfolders3(this: ILoadOptionsFunctions, filter?: string, paginationToken?: string) {
+				return await searchSubfolderLevel(this, 3, filter, paginationToken);
+			},
+			async searchSubfolders4(this: ILoadOptionsFunctions, filter?: string, paginationToken?: string) {
+				return await searchSubfolderLevel(this, 4, filter, paginationToken);
+			},
+			async searchSubfolders5(this: ILoadOptionsFunctions, filter?: string, paginationToken?: string) {
+				return await searchSubfolderLevel(this, 5, filter, paginationToken);
+			},
+			async searchSubfolders6(this: ILoadOptionsFunctions, filter?: string, paginationToken?: string) {
+				return await searchSubfolderLevel(this, 6, filter, paginationToken);
+			},
+			async searchSubfolders7(this: ILoadOptionsFunctions, filter?: string, paginationToken?: string) {
+				return await searchSubfolderLevel(this, 7, filter, paginationToken);
+			},
+			async searchSubfolders8(this: ILoadOptionsFunctions, filter?: string, paginationToken?: string) {
+				return await searchSubfolderLevel(this, 8, filter, paginationToken);
 			},
 		},
 	};
@@ -623,7 +1052,7 @@ export class AutodeskApsDataManagement implements INodeType {
 					? resourceValue(this.getNodeParameter('projectId', itemIndex, ''))
 					: '';
 				const folderId = FOLDER_FIELD_OPERATIONS.includes(operation)
-					? resourceValue(this.getNodeParameter('folderId', itemIndex, ''))
+					? selectedExecutionFolder(this, itemIndex)
 					: '';
 				const itemId = ITEM_OPERATIONS.includes(operation)
 					? resourceValue(this.getNodeParameter('itemId', itemIndex, ''))
@@ -644,6 +1073,11 @@ export class AutodeskApsDataManagement implements INodeType {
 				delete allPageArgs.pageLimit;
 				if (HUB_REQUIRED_OPERATIONS.includes(operation) && !hubId) {
 					throw new NodeOperationError(this.getNode(), 'ACC Hub is required for this operation', {
+						itemIndex,
+					});
+				}
+				if (FOLDER_FIELD_OPERATIONS.includes(operation) && !folderId) {
+					throw new NodeOperationError(this.getNode(), 'Folder ID is required for this operation', {
 						itemIndex,
 					});
 				}

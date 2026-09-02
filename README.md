@@ -95,14 +95,17 @@ Hub, project, folder, item/file, and version fields provide two modes:
 
 To browse projects, choose an ACC hub first. When a project ID comes from another node, switch Project to **By ID**; the hub can remain empty for operations whose APS endpoint only requires a project ID.
 
-The resource browsers scan the selected project's hierarchy and show searchable full paths. Choose the hub and project first.
+New nodes use a lazy path browser. Choose the hub and project first, select a top-level folder, and continue through the subfolder fields only as deeply as needed. Each dropdown requests only the direct children of the preceding folder and loads additional APS pages on demand.
 
-- Folder fields allow folder selection and show files as disabled context rows.
-- Item/file fields allow file selection and show folders as disabled context rows.
-- Version fields group every file with its selectable versions, showing the version number and creation date while storing the version ID.
-- Upload File's optional **Existing Item ID** uses the item/file browser so an existing file can be selected when creating a new version.
+- Folder operations and Upload File use the deepest selected folder as their target.
+- Item/file fields list only files in the selected folder.
+- Version fields load versions only after a file is selected, showing the version number and creation date while storing the version ID.
+- Upload File's optional **Existing Item ID** lists files in the selected destination folder so an existing file can be selected when creating a new version.
+- Eight optional subfolder levels are available. For a deeper path, select **By ID** and supply the final folder ID or an expression.
 
 **By ID** accepts both literal IDs and expressions such as `{{$json.folderId}}`, `{{$json.itemId}}`, or `{{$json.versionId}}`.
+
+Existing version 1 node instances retain the original full-project browser. Upgrade the node version to use lazy browsing; saved IDs and expressions continue to execute unchanged.
 
 ## Operations
 

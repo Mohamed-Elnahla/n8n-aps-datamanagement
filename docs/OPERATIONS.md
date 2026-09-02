@@ -15,12 +15,18 @@ The node wraps the getter surface of `DataManagementClient` from `@aps_sdk/data-
 
 Hub and project list results show human-readable names; the stored value is the Autodesk ID. The **By ID** mode accepts n8n expressions.
 
-Resource browsers scan all accessible top folders and display full paths:
+Node version 2 uses dependent lazy resource locators:
 
-- Folder selectors allow folders to be selected and show files as disabled context rows.
-- Item/file selectors show folders as disabled context rows and return the selected file's item ID.
-- Version selectors group files with their selectable versions. Version rows show version number and creation date and return the version ID.
-- Upload File's optional Existing Item ID uses the same item/file selector; leaving it empty creates a new item.
+- The Folder ID field initially loads only project top folders.
+- Each optional Subfolder Level field loads only direct child folders of the preceding selection.
+- Item/file selectors load only direct files in the deepest selected folder.
+- Version selectors load versions only for the selected item. Version rows show version number and creation date and return the version ID.
+- Upload File's optional Existing Item ID is scoped to the selected destination folder; leaving it empty creates a new item.
+- List searches may load all pages of only the current folder or selected item so filtering is complete. Opening an unfiltered list fetches one APS page at a time.
+
+Eight optional subfolder levels are exposed. Deeper targets remain supported through the Folder ID field's **By ID** mode. All folder, item, existing-item, and version identifier fields retain literal-ID and n8n-expression support.
+
+Existing version 1 node instances retain the original full-project browser until upgraded, preventing saved workflows from changing behavior automatically.
 
 ## Getter mapping
 
