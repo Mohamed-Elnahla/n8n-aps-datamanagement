@@ -39,7 +39,7 @@ List execution uses ordered zip-and-broadcast behavior:
 - Lists with more than one value must have the same length.
 - The node never creates a Cartesian product implicitly.
 
-For folder browsing, the deepest non-empty subfolder level is the target list. Versions 1 and 2 retain their saved scalar parameters and behavior.
+For folder browsing, only the next subfolder selector is shown after its parent contains a selection; unused deeper levels remain hidden. The deepest non-empty subfolder level is the target list. When selected inputs span multiple contexts, dependent project, folder, file, and version choices are labelled `Hub › Project › Resource` while retaining their original Autodesk ID values. Versions 1 and 2 retain their saved scalar parameters and behavior.
 
 ## Output modes
 
@@ -49,7 +49,7 @@ For folder browsing, the deepest non-empty subfolder level is the target list. V
 | Return Only Data | Emits one n8n item per `data` resource in APS order; full-tree operations use their ordered `tree` entries |
 | Select and Map Data Fields | Emits one item per data resource after applying the configured common-field and custom mappings |
 
-The common-field selector is operation-aware: JSON:API resources expose standard resource fields, while recursive trees expose traversal fields such as `name`, `path`, `depth`, and `parentId`. **Custom Data Field Mappings (JSON)** accepts an object whose keys are output dotted paths and whose values are APS source dotted paths:
+The common-field selector is operation-aware: JSON:API resources expose standard resource fields, while recursive trees expose traversal fields such as `name`, `path`, `depth`, and `parentId`. Object sources reveal nested-key inputs progressively. For example, select `relationships`, enter `storage`, then `data`, then `id`; only the next nested input is displayed at each step. Up to ten nested UI levels are supported. **Custom Data Field Mappings (JSON)** remains available for deeper or bulk paths and accepts an object whose keys are output dotted paths and whose values are APS source dotted paths:
 
 ```json
 {

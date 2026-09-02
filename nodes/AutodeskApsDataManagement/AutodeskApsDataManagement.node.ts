@@ -118,6 +118,7 @@ const HUB_FIELD_OPERATIONS = [...PROJECT_OPERATIONS, 'getHub', 'getHubProjects',
 const FOLDER_FIELD_OPERATIONS = [...FOLDER_OPERATIONS, 'uploadFile'];
 const LAZY_BROWSER_VERSION = 2;
 const MULTI_INPUT_VERSION = 3;
+const OUTPUT_SOURCE_LEVELS = 10;
 // Autodesk Docs supports up to 25 subfolder levels below a top-level folder.
 const SUBFOLDER_LEVELS = 25;
 const SUBFOLDER_PARAMETER_NAMES = Array.from(
@@ -312,7 +313,7 @@ function multiSubfolderProperties(): INodeProperties[] {
 		const level = index + 1;
 		const name = `subfolderIds${level}`;
 		const previousName = level === 1 ? 'folderIds' : `subfolderIds${level - 1}`;
-		return multiResourceProperty(
+		const property = multiResourceProperty(
 			`Subfolder Level ${level}`,
 			name,
 			BROWSE_FOLDER_OPERATIONS,
@@ -321,6 +322,36 @@ function multiSubfolderProperties(): INodeProperties[] {
 			'Optional. Select one or more direct children of the folders above. The deepest non-empty level is used as the ordered target list.',
 			['hubIds', 'projectIds', previousName],
 		);
+		property.displayOptions = {
+			show: {
+				'@version': [MULTI_INPUT_VERSION],
+				operation: BROWSE_FOLDER_OPERATIONS,
+				[previousName]: [{ _cnd: { exists: true } }],
+			},
+		};
+		return property;
+	});
+}
+
+function nestedSourceProperties(): INodeProperties[] {
+	return Array.from({ length: OUTPUT_SOURCE_LEVELS }, (_, index) => {
+		const level = index + 1;
+		const name = `sourcePart${level}`;
+		const previousName = level === 1 ? 'source' : `sourcePart${level - 1}`;
+		return {
+			displayName: `Nested Source Field ${level}`,
+			name,
+			type: 'string',
+			default: '',
+			placeholder: level === 1 ? 'e.g. displayName or storage' : 'e.g. data or id',
+			description: 'Enter the next key in the nested source object. The following level appears after this is filled.',
+			displayOptions: {
+				show:
+					level === 1
+						? { source: ['attributes', 'relationships', 'links', 'resource'] }
+						: { [previousName]: [{ _cnd: { exists: true } }] },
+			},
+		};
 	});
 }
 
@@ -432,8 +463,8 @@ const properties: INodeProperties[] = [
 						timeout: 10_000,
 					},
 				},
-			},
-			{
+					},
+				{
 				displayName: 'By ID',
 				name: 'id',
 				type: 'string',
@@ -808,12 +839,13 @@ const properties: INodeProperties[] = [
 						type: 'options',
 						default: 'id',
 						description: 'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
-						typeOptions: {
-							loadOptionsMethod: 'loadCommonOutputFields',
-							loadOptionsDependsOn: ['operation', 'scanFullTree'],
+							typeOptions: {
+								loadOptionsMethod: 'loadCommonOutputFields',
+								loadOptionsDependsOn: ['operation', 'scanFullTree'],
+							},
 						},
-					},
-					{
+						...nestedSourceProperties(),
+						{
 						displayName: 'Output Field',
 						name: 'target',
 						type: 'string',
@@ -1189,6 +1221,56 @@ function uniqueOptions(options: INodePropertyOptions[]): INodePropertyOptions[] 
 	});
 }
 
+type ApsDataClient = Awaited<ReturnType<typeof createApsContext>>['client'];
+type ApsRequestArgs = { accessToken: string; xUserId?: string };
+
+async function loadHubNameMap(
+	client: ApsDataClient,
+	requestArgs: ApsRequestArgs,
+): Promise<Map<string, string>> {
+	const names = new Map<string, string>();
+	try {
+		const response = await client.getHubs(requestArgs);
+		for (const hub of response.data ?? []) names.set(resourceId(hub), displayName(hub));
+	} catch {
+		// The dependent resource request can still succeed, so IDs remain useful fallbacks.
+	}
+	return names;
+}
+
+async function projectContextName(
+	client: ApsDataClient,
+	hubId: string,
+	projectId: string,
+	requestArgs: ApsRequestArgs,
+	cache: Map<string, string>,
+): Promise<string> {
+	const key = `${hubId}:${projectId}`;
+	const cached = cache.get(key);
+	if (cached) return cached;
+	let name = projectId;
+	if (hubId) {
+		try {
+			const response = await client.getProject(hubId, projectId, requestArgs);
+			name = displayName(response.data);
+		} catch {
+			// Keep the project ID as context when its display name cannot be resolved.
+		}
+	}
+	cache.set(key, name);
+	return name;
+}
+
+export function contextualOptionName(
+	showContext: boolean,
+	hubName: string,
+	projectName: string,
+	resourceName: string,
+): string {
+	if (!showContext) return resourceName;
+	return [hubName, projectName, resourceName].filter(Boolean).join(' › ');
+}
+
 async function loadHubsMulti(thisArg: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 	const credentials = await thisArg.getCredentials('autodeskApsApi');
 	const { client, accessToken, xUserId } = await createApsContext(credentials);
@@ -1203,6 +1285,8 @@ async function loadProjectsMulti(thisArg: ILoadOptionsFunctions): Promise<INodeP
 	if (hubIds.length === 0) return [];
 	const credentials = await thisArg.getCredentials('autodeskApsApi');
 	const { client, accessToken, xUserId } = await createApsContext(credentials);
+	const requestArgs = { accessToken, ...(xUserId ? { xUserId } : {}) };
+	const hubNames = await loadHubNameMap(client, requestArgs);
 	const options: INodePropertyOptions[] = [];
 	for (const hubId of hubIds) {
 		const response = await loadAllPages(async (pageNumber) =>
@@ -1216,7 +1300,13 @@ async function loadProjectsMulti(thisArg: ILoadOptionsFunctions): Promise<INodeP
 		options.push(
 			...(response.data ?? [])
 				.filter(isAccProject)
-				.map((project) => ({ name: displayName(project), value: resourceId(project) })),
+				.map((project) => ({
+					name:
+						hubIds.length > 1
+							? `${hubNames.get(hubId) ?? hubId} › ${displayName(project)}`
+							: displayName(project),
+					value: resourceId(project),
+				})),
 		);
 	}
 	return uniqueOptions(options);
@@ -1228,10 +1318,21 @@ async function loadFoldersMulti(thisArg: ILoadOptionsFunctions): Promise<INodePr
 	if (hubIds.length === 0 || projectIds.length === 0) return [];
 	const credentials = await thisArg.getCredentials('autodeskApsApi');
 	const { client, accessToken, xUserId } = await createApsContext(credentials);
+	const requestArgs = { accessToken, ...(xUserId ? { xUserId } : {}) };
+	const hubNames = await loadHubNameMap(client, requestArgs);
+	const projectNames = new Map<string, string>();
+	const showContext = hubIds.length > 1 || projectIds.length > 1;
 	const options: INodePropertyOptions[] = [];
 	for (let index = 0; index < projectIds.length; index++) {
 		const hubId = broadcastValue(hubIds, index);
 		if (!hubId) continue;
+		const projectName = await projectContextName(
+			client,
+			hubId,
+			projectIds[index],
+			requestArgs,
+			projectNames,
+		);
 		const response = await client.getProjectTopFolders(hubId, projectIds[index], {
 			accessToken,
 			xUserId,
@@ -1239,7 +1340,15 @@ async function loadFoldersMulti(thisArg: ILoadOptionsFunctions): Promise<INodePr
 		options.push(
 			...(response.data ?? [])
 				.filter((folder) => resourceType(folder) === 'folders')
-				.map((folder) => ({ name: displayName(folder), value: resourceId(folder) })),
+				.map((folder) => ({
+					name: contextualOptionName(
+						showContext,
+						hubNames.get(hubId) ?? hubId,
+						projectName,
+						displayName(folder),
+					),
+					value: resourceId(folder),
+				})),
 		);
 	}
 	return uniqueOptions(options);
@@ -1261,14 +1370,27 @@ async function loadDirectResourcesMulti(
 	wantedType: 'folders' | 'items',
 ): Promise<INodePropertyOptions[]> {
 	if (parentIds.length === 0) return [];
+	const hubIds = getMultiParameter(thisArg, 'hubIds');
 	const projectIds = getMultiParameter(thisArg, 'projectIds');
 	if (projectIds.length === 0) return [];
 	const credentials = await thisArg.getCredentials('autodeskApsApi');
 	const { client, accessToken, xUserId } = await createApsContext(credentials);
+	const requestArgs = { accessToken, ...(xUserId ? { xUserId } : {}) };
+	const hubNames = await loadHubNameMap(client, requestArgs);
+	const projectNames = new Map<string, string>();
+	const showContext = hubIds.length > 1 || projectIds.length > 1 || parentIds.length > 1;
 	const options: INodePropertyOptions[] = [];
 	for (let index = 0; index < parentIds.length; index++) {
 		const projectId = broadcastValue(projectIds, index);
 		if (!projectId) continue;
+		const hubId = broadcastValue(hubIds, index) ?? '';
+		const projectName = await projectContextName(
+			client,
+			hubId,
+			projectId,
+			requestArgs,
+			projectNames,
+		);
 		const response = await loadAllPages(async (pageNumber) =>
 			await client.getFolderContents(projectId, parentIds[index], {
 				accessToken,
@@ -1280,7 +1402,15 @@ async function loadDirectResourcesMulti(
 		options.push(
 			...(response.data ?? [])
 				.filter((resource) => resourceType(resource) === wantedType)
-				.map((resource) => ({ name: displayName(resource), value: resourceId(resource) })),
+				.map((resource) => ({
+					name: contextualOptionName(
+						showContext,
+						hubNames.get(hubId) ?? hubId,
+						projectName,
+						displayName(resource),
+					),
+					value: resourceId(resource),
+				})),
 		);
 	}
 	return uniqueOptions(options);
@@ -1303,15 +1433,28 @@ async function loadItemsMulti(thisArg: ILoadOptionsFunctions): Promise<INodeProp
 }
 
 async function loadVersionsMulti(thisArg: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+	const hubIds = getMultiParameter(thisArg, 'hubIds');
 	const projectIds = getMultiParameter(thisArg, 'projectIds');
 	const itemIds = getMultiParameter(thisArg, 'itemIds');
 	if (projectIds.length === 0 || itemIds.length === 0) return [];
 	const credentials = await thisArg.getCredentials('autodeskApsApi');
 	const { client, accessToken, xUserId } = await createApsContext(credentials);
+	const requestArgs = { accessToken, ...(xUserId ? { xUserId } : {}) };
+	const hubNames = await loadHubNameMap(client, requestArgs);
+	const projectNames = new Map<string, string>();
+	const showContext = hubIds.length > 1 || projectIds.length > 1 || itemIds.length > 1;
 	const options: INodePropertyOptions[] = [];
 	for (let index = 0; index < itemIds.length; index++) {
 		const projectId = broadcastValue(projectIds, index);
 		if (!projectId) continue;
+		const hubId = broadcastValue(hubIds, index) ?? '';
+		const projectName = await projectContextName(
+			client,
+			hubId,
+			projectId,
+			requestArgs,
+			projectNames,
+		);
 		const response = await loadAllPages(async (pageNumber) =>
 			await client.getItemVersions(projectId, itemIds[index], {
 				accessToken,
@@ -1326,8 +1469,14 @@ async function loadVersionsMulti(thisArg: ILoadOptionsFunctions): Promise<INodeP
 		options.push(
 			...versions.map((version) => {
 				const details = versionDisplay(version);
+				const versionName = `${displayName(version)} — Version ${details.number} — ${details.date}`;
 				return {
-					name: `${displayName(version)} — Version ${details.number} — ${details.date}`,
+					name: contextualOptionName(
+						showContext,
+						hubNames.get(hubId) ?? hubId,
+						projectName,
+						versionName,
+					),
 					value: resourceId(version),
 				};
 			}),
@@ -1453,9 +1602,20 @@ function mappedRecord(
 	customMappingsValue: unknown,
 ): IDataObject {
 	const result: IDataObject = {};
-	const collection = mappingsValue as { values?: Array<{ source?: unknown; target?: unknown }> };
+	const collection = mappingsValue as {
+		values?: Array<{ source?: unknown; target?: unknown; [key: string]: unknown }>;
+	};
 	for (const mapping of collection?.values ?? []) {
-		const source = String(mapping.source ?? '').trim();
+		const rootSource = String(mapping.source ?? '').trim();
+		const sourceParts = [rootSource];
+		if (['attributes', 'relationships', 'links', 'resource'].includes(rootSource)) {
+			for (let level = 1; level <= OUTPUT_SOURCE_LEVELS; level++) {
+				const part = String(mapping[`sourcePart${level}`] ?? '').trim();
+				if (!part) break;
+				sourceParts.push(part);
+			}
+		}
+		const source = sourceParts.filter(Boolean).join('.');
 		if (!source) continue;
 		const target = String(mapping.target ?? '').trim() || source;
 		const value = getPathValue(record, source);

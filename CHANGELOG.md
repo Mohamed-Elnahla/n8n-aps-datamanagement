@@ -6,6 +6,15 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Added progressive nested source-field controls for mapped output data.
+- Added hub/project context prefixes to dependent multi-select option labels when selections span multiple contexts.
+
+### Changed
+
+- Version 3 now reveals only the next subfolder level after its parent has a selection instead of displaying every supported level.
+
 ## [0.3.0] - 2026-09-02
 
 ### Added
