@@ -30,6 +30,36 @@ Every selector returns only its target resource type: folder fields contain fold
 
 Existing version 1 node instances retain the original full-project browser until upgraded, preventing saved workflows from changing behavior automatically.
 
+Node version 3 changes the browsable identifiers to native n8n multi-select fields. Hub, project, folder, item, version, existing-item, input/output binary field, and ACC file-type selections accept ordered lists. Download and job IDs accept JSON arrays. Literal arrays can also be supplied through expressions.
+
+List execution uses ordered zip-and-broadcast behavior:
+
+- Output follows incoming-item order, then selected-list order, then APS collection order.
+- A list with one value is broadcast across the longest list.
+- Lists with more than one value must have the same length.
+- The node never creates a Cartesian product implicitly.
+
+For folder browsing, the deepest non-empty subfolder level is the target list. Versions 1 and 2 retain their saved scalar parameters and behavior.
+
+## Output modes
+
+| Mode | Behavior |
+| --- | --- |
+| Return Full Response | Returns one item containing the complete APS response; this is the compatibility default |
+| Return Only Data | Emits one n8n item per `data` resource in APS order; full-tree operations use their ordered `tree` entries |
+| Select and Map Data Fields | Emits one item per data resource after applying the configured common-field and custom mappings |
+
+The common-field selector is operation-aware: JSON:API resources expose standard resource fields, while recursive trees expose traversal fields such as `name`, `path`, `depth`, and `parentId`. **Custom Data Field Mappings (JSON)** accepts an object whose keys are output dotted paths and whose values are APS source dotted paths:
+
+```json
+{
+  "fileName": "attributes.displayName",
+  "storage": "relationships.storage.data.id"
+}
+```
+
+Mappings apply independently to every resource returned by a collection. Missing source paths are omitted and do not change resource ordering.
+
 ## Getter mapping
 
 | Node operation | SDK method | Required identifiers |
@@ -166,4 +196,4 @@ The JSON output is the version metadata and the binary output contains the downl
 
 ## Item pairing and errors
 
-Each output item is paired to its corresponding input item. When **Continue On Fail** is enabled, a failed input produces an item containing an `error` field instead of stopping the entire execution.
+Each output item is paired to its corresponding input item. When **Continue On Fail** is enabled, a failed list entry produces an item containing an `error` field and later entries continue in order instead of stopping the entire execution.

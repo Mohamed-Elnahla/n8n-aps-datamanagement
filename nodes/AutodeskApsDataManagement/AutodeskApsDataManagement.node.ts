@@ -7,8 +7,10 @@ import type {
 	ILoadOptionsFunctions,
 	INodeExecutionData,
 	INodeCredentialTestResult,
+	INode,
 	INodeListSearchResult,
 	INodeProperties,
+	INodePropertyOptions,
 	INodeType,
 	INodeTypeDescription,
 } from 'n8n-workflow';
@@ -115,6 +117,7 @@ const PROJECT_FIELD_OPERATIONS = [...PROJECT_OPERATIONS, 'uploadFile', 'download
 const HUB_FIELD_OPERATIONS = [...PROJECT_OPERATIONS, 'getHub', 'getHubProjects', 'uploadFile', 'downloadFile'];
 const FOLDER_FIELD_OPERATIONS = [...FOLDER_OPERATIONS, 'uploadFile'];
 const LAZY_BROWSER_VERSION = 2;
+const MULTI_INPUT_VERSION = 3;
 // Autodesk Docs supports up to 25 subfolder levels below a top-level folder.
 const SUBFOLDER_LEVELS = 25;
 const SUBFOLDER_PARAMETER_NAMES = Array.from(
@@ -146,7 +149,7 @@ const hubProperty: INodeProperties = {
 		{ displayName: 'By ID', name: 'id', type: 'string', placeholder: 'b.account-guid' },
 	],
 	displayOptions: {
-		show: { operation: HUB_FIELD_OPERATIONS },
+		show: { '@version': [1, LAZY_BROWSER_VERSION], operation: HUB_FIELD_OPERATIONS },
 	},
 };
 
@@ -167,7 +170,9 @@ const projectProperty: INodeProperties = {
 		},
 		{ displayName: 'By ID', name: 'id', type: 'string', placeholder: 'b.project-guid' },
 	],
-	displayOptions: { show: { operation: PROJECT_FIELD_OPERATIONS } },
+	displayOptions: {
+		show: { '@version': [1, LAZY_BROWSER_VERSION], operation: PROJECT_FIELD_OPERATIONS },
+	},
 };
 
 function folderLocatorModes(searchListMethod: string): NonNullable<INodeProperties['modes']> {
@@ -275,6 +280,119 @@ function itemLocatorProperty(operations: string[], required: boolean): INodeProp
 	};
 }
 
+function multiResourceProperty(
+	displayNameValue: string,
+	name: string,
+	operations: string[],
+	loadOptionsMethod: string,
+	required: boolean,
+	description: string,
+	loadOptionsDependsOn: string[] = [],
+): INodeProperties {
+	return {
+		displayName: displayNameValue,
+		name,
+		type: 'multiOptions',
+		default: [],
+		required,
+		allowArbitraryValues: true,
+		description,
+		typeOptions: {
+			loadOptionsMethod,
+			...(loadOptionsDependsOn.length > 0 ? { loadOptionsDependsOn } : {}),
+		},
+		displayOptions: {
+			show: { '@version': [MULTI_INPUT_VERSION], operation: operations },
+		},
+	};
+}
+
+function multiSubfolderProperties(): INodeProperties[] {
+	return SUBFOLDER_PARAMETER_NAMES.map((_, index) => {
+		const level = index + 1;
+		const name = `subfolderIds${level}`;
+		const previousName = level === 1 ? 'folderIds' : `subfolderIds${level - 1}`;
+		return multiResourceProperty(
+			`Subfolder Level ${level}`,
+			name,
+			BROWSE_FOLDER_OPERATIONS,
+			`loadSubfolders${level}`,
+			false,
+			'Optional. Select one or more direct children of the folders above. The deepest non-empty level is used as the ordered target list.',
+			['hubIds', 'projectIds', previousName],
+		);
+	});
+}
+
+const multiHubProperty = multiResourceProperty(
+	'ACC Hubs',
+	'hubIds',
+	HUB_FIELD_OPERATIONS,
+	'loadHubsMulti',
+	false,
+	'Choose one or more ACC accounts in execution order, or supply an array of hub IDs with an expression',
+);
+
+const multiProjectProperty = multiResourceProperty(
+	'ACC Projects',
+	'projectIds',
+	PROJECT_FIELD_OPERATIONS,
+	'loadProjectsMulti',
+	true,
+	'Choose one or more ACC projects in execution order. A single hub is broadcast across all selected projects.',
+	['hubIds'],
+);
+
+const multiFolderProperty = multiResourceProperty(
+	'Folders',
+	'folderIds',
+	FOLDER_FIELD_OPERATIONS,
+	'loadFoldersMulti',
+	true,
+	'Choose one or more top-level folders, continue through the subfolder fields, or supply an ordered array of folder IDs with an expression',
+	['hubIds', 'projectIds'],
+);
+
+const optionalMultiFolderProperty = multiResourceProperty(
+	'Browse Folders',
+	'folderIds',
+	OPTIONAL_BROWSE_FOLDER_OPERATIONS,
+	'loadFoldersMulti',
+	false,
+	'Optional folder scope for browsing files. Leave empty when supplying item or version IDs directly.',
+	['hubIds', 'projectIds'],
+);
+
+const multiItemProperty = multiResourceProperty(
+	'Items',
+	'itemIds',
+	ITEM_OPERATIONS,
+	'loadItemsMulti',
+	true,
+	'Choose one or more files in execution order, or supply an array of item IDs with an expression',
+	['hubIds', 'projectIds', 'folderIds', ...SUBFOLDER_PARAMETER_NAMES.map((_, index) => `subfolderIds${index + 1}`)],
+);
+
+const optionalMultiItemProperty = multiResourceProperty(
+	'Files to Browse',
+	'itemIds',
+	VERSION_OPERATIONS,
+	'loadItemsMulti',
+	false,
+	'Choose files to load their versions, or leave empty when supplying Version IDs directly',
+	['hubIds', 'projectIds', 'folderIds', ...SUBFOLDER_PARAMETER_NAMES.map((_, index) => `subfolderIds${index + 1}`)],
+);
+
+const multiVersionProperty = multiResourceProperty(
+	'Versions',
+	'versionIds',
+	VERSION_OPERATIONS,
+	'loadVersionsMulti',
+	true,
+	'Choose one or more versions in execution order, or supply an array of version IDs with an expression',
+	['hubIds', 'projectIds', 'itemIds'],
+);
+
 const properties: INodeProperties[] = [
 	{
 		displayName: 'Operation',
@@ -290,6 +408,8 @@ const properties: INodeProperties[] = [
 	},
 	hubProperty,
 	projectProperty,
+	multiHubProperty,
+	multiProjectProperty,
 	{
 		displayName: 'Folder ID',
 		name: 'folderId',
@@ -325,6 +445,9 @@ const properties: INodeProperties[] = [
 	lazyRootFolderProperty(FOLDER_FIELD_OPERATIONS, true, 'Folder ID'),
 	lazyRootFolderProperty(OPTIONAL_BROWSE_FOLDER_OPERATIONS, false, 'Browse Folder'),
 	...lazySubfolderProperties(),
+	multiFolderProperty,
+	optionalMultiFolderProperty,
+	...multiSubfolderProperties(),
 	{
 		displayName: 'Load All Pages',
 		name: 'returnAll',
@@ -375,6 +498,8 @@ const properties: INodeProperties[] = [
 	},
 	itemLocatorProperty(ITEM_OPERATIONS, true),
 	itemLocatorProperty(VERSION_OPERATIONS, false),
+	multiItemProperty,
+	optionalMultiItemProperty,
 	{
 		displayName: 'Version ID',
 		name: 'versionId',
@@ -437,13 +562,27 @@ const properties: INodeProperties[] = [
 			show: { '@version': [LAZY_BROWSER_VERSION], operation: VERSION_OPERATIONS },
 		},
 	},
+	multiVersionProperty,
 	{
 		displayName: 'Download ID',
 		name: 'downloadId',
 		type: 'string',
 		default: '',
 		required: true,
-		displayOptions: { show: { operation: ['getDownload'] } },
+		displayOptions: {
+			show: { '@version': [1, LAZY_BROWSER_VERSION], operation: ['getDownload'] },
+		},
+	},
+	{
+		displayName: 'Download IDs',
+		name: 'downloadIds',
+		type: 'json',
+		default: '[]',
+		required: true,
+		description: 'Ordered JSON array of APS download IDs. A single string is also accepted.',
+		displayOptions: {
+			show: { '@version': [MULTI_INPUT_VERSION], operation: ['getDownload'] },
+		},
 	},
 	{
 		displayName: 'Job ID',
@@ -451,7 +590,20 @@ const properties: INodeProperties[] = [
 		type: 'string',
 		default: '',
 		required: true,
-		displayOptions: { show: { operation: ['getDownloadJob'] } },
+		displayOptions: {
+			show: { '@version': [1, LAZY_BROWSER_VERSION], operation: ['getDownloadJob'] },
+		},
+	},
+	{
+		displayName: 'Job IDs',
+		name: 'jobIds',
+		type: 'json',
+		default: '[]',
+		required: true,
+		description: 'Ordered JSON array of APS download-job IDs. A single string is also accepted.',
+		displayOptions: {
+			show: { '@version': [MULTI_INPUT_VERSION], operation: ['getDownloadJob'] },
+		},
 	},
 	{
 		displayName: 'Binary Input',
@@ -469,7 +621,22 @@ const properties: INodeProperties[] = [
 		required: true,
 		placeholder: 'data',
 		description: 'Name of the binary property on the incoming n8n item that contains the file',
-		displayOptions: { show: { operation: ['uploadFile'] } },
+		displayOptions: {
+			show: { '@version': [1, LAZY_BROWSER_VERSION], operation: ['uploadFile'] },
+		},
+	},
+	{
+		displayName: 'Input Binary Property Names',
+		name: 'inputBinaryFields',
+		type: 'multiOptions',
+		default: ['data'],
+		required: true,
+		allowArbitraryValues: true,
+		options: [{ name: 'Data', value: 'data' }],
+		description: 'Ordered binary property names to upload. A single value is broadcast across all folder or item targets.',
+		displayOptions: {
+			show: { '@version': [MULTI_INPUT_VERSION], operation: ['uploadFile'] },
+		},
 	},
 	{
 		displayName: 'Existing Item ID',
@@ -504,13 +671,34 @@ const properties: INodeProperties[] = [
 			show: { '@version': [LAZY_BROWSER_VERSION], operation: ['uploadFile'] },
 		},
 	},
+	multiResourceProperty(
+		'Existing Items',
+		'existingItemIds',
+		['uploadFile'],
+		'loadItemsMulti',
+		false,
+		'Optionally choose existing files in execution order to create new versions. Empty entries create new items.',
+		['hubIds', 'projectIds', 'folderIds', ...SUBFOLDER_PARAMETER_NAMES.map((_, index) => `subfolderIds${index + 1}`)],
+	),
 	{
 		displayName: 'File Name',
 		name: 'fileName',
 		type: 'string',
 		default: '',
 		description: 'Leave empty to use the binary file name',
-		displayOptions: { show: { operation: ['uploadFile'] } },
+		displayOptions: {
+			show: { '@version': [1, LAZY_BROWSER_VERSION], operation: ['uploadFile'] },
+		},
+	},
+	{
+		displayName: 'File Names',
+		name: 'fileNames',
+		type: 'json',
+		default: '[]',
+		description: 'Optional ordered JSON array of destination file names. Empty entries use the binary file name.',
+		displayOptions: {
+			show: { '@version': [MULTI_INPUT_VERSION], operation: ['uploadFile'] },
+		},
 	},
 	{
 		displayName: 'Existing Item ID',
@@ -548,7 +736,24 @@ const properties: INodeProperties[] = [
 			{ name: 'Project File', value: 'File' },
 			{ name: 'Plan Document', value: 'Document' },
 		],
-		displayOptions: { show: { operation: ['uploadFile'] } },
+		displayOptions: {
+			show: { '@version': [1, LAZY_BROWSER_VERSION], operation: ['uploadFile'] },
+		},
+	},
+	{
+		displayName: 'ACC File Types',
+		name: 'accFileTypes',
+		type: 'multiOptions',
+		default: ['File'],
+		required: true,
+		options: [
+			{ name: 'Project File', value: 'File' },
+			{ name: 'Plan Document', value: 'Document' },
+		],
+		description: 'Ordered file types. A single selection is broadcast across every upload target.',
+		displayOptions: {
+			show: { '@version': [MULTI_INPUT_VERSION], operation: ['uploadFile'] },
+		},
 	},
 	{
 		displayName: 'Output Binary Field',
@@ -556,7 +761,79 @@ const properties: INodeProperties[] = [
 		type: 'string',
 		default: 'data',
 		required: true,
-		displayOptions: { show: { operation: ['downloadFile'] } },
+		displayOptions: {
+			show: { '@version': [1, LAZY_BROWSER_VERSION], operation: ['downloadFile'] },
+		},
+	},
+	{
+		displayName: 'Output Binary Fields',
+		name: 'outputBinaryFields',
+		type: 'multiOptions',
+		default: ['data'],
+		required: true,
+		allowArbitraryValues: true,
+		options: [{ name: 'Data', value: 'data' }],
+		description: 'Ordered binary output field names. A single value is broadcast across every downloaded version.',
+		displayOptions: {
+			show: { '@version': [MULTI_INPUT_VERSION], operation: ['downloadFile'] },
+		},
+	},
+	{
+		displayName: 'Output',
+		name: 'outputMode',
+		type: 'options',
+		default: 'full',
+		options: [
+			{ name: 'Return Full Response', value: 'full' },
+			{ name: 'Return Only Data', value: 'data' },
+			{ name: 'Select and Map Data Fields', value: 'fields' },
+		],
+		description: 'Choose whether each API call returns its full response, its data records, or mapped fields from every data record',
+	},
+	{
+		displayName: 'Data Field Mappings',
+		name: 'outputMappings',
+		type: 'fixedCollection',
+		default: {},
+		placeholder: 'Add Field Mapping',
+		typeOptions: { multipleValues: true, sortable: true },
+		options: [
+			{
+				name: 'values',
+				displayName: 'Field',
+				values: [
+					{
+						displayName: 'Source Field Name or ID',
+						name: 'source',
+						type: 'options',
+						default: 'id',
+						description: 'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+						typeOptions: {
+							loadOptionsMethod: 'loadCommonOutputFields',
+							loadOptionsDependsOn: ['operation', 'scanFullTree'],
+						},
+					},
+					{
+						displayName: 'Output Field',
+						name: 'target',
+						type: 'string',
+						default: '',
+						placeholder: 'e.g. fileId',
+						description: 'Output field name or dotted path. Leave empty to keep the source field name.',
+					},
+				],
+			},
+		],
+		displayOptions: { show: { outputMode: ['fields'] } },
+	},
+	{
+		displayName: 'Custom Data Field Mappings (JSON)',
+		name: 'customOutputMappings',
+		type: 'json',
+		default: '{}',
+		// eslint-disable-next-line n8n-nodes-base/node-param-description-miscased-id -- JSON paths must match APS response keys exactly.
+		description: 'Optional object mapping output fields to source dotted paths, for example {"version":"attributes.versionNumber","storage":"relationships.storage.data.id"}',
+		displayOptions: { show: { outputMode: ['fields'] } },
 	},
 	{
 		displayName: 'Additional Options (JSON)',
@@ -861,6 +1138,354 @@ function versionDisplay(version: unknown): { number: string; date: string } {
 	};
 }
 
+function parseParameterValue(value: unknown): unknown {
+	if (typeof value !== 'string') return value;
+	const trimmed = value.trim();
+	if (!trimmed || (!trimmed.startsWith('[') && !trimmed.startsWith('{'))) return value;
+	try {
+		return JSON.parse(trimmed) as unknown;
+	} catch {
+		return value;
+	}
+}
+
+function parameterValues(value: unknown): unknown[] {
+	const parsed = parseParameterValue(value);
+	if (Array.isArray(parsed)) return parsed.flatMap((entry) => parameterValues(entry));
+	if (parsed && typeof parsed === 'object' && 'value' in parsed) {
+		return parameterValues((parsed as { value: unknown }).value);
+	}
+	return [parsed];
+}
+
+function stringParameterValues(value: unknown): string[] {
+	return parameterValues(value)
+		.map((entry) => String(entry ?? '').trim())
+		.filter(Boolean);
+}
+
+function getMultiParameter(
+	thisArg: ILoadOptionsFunctions | IExecuteFunctions,
+	name: string,
+	itemIndex?: number,
+): string[] {
+	return stringParameterValues(
+		thisArg.getNodeParameter(name, itemIndex, [], { extractValue: true }),
+	);
+}
+
+function broadcastValue<T>(values: T[], index: number): T | undefined {
+	if (values.length === 1) return values[0];
+	return values[index];
+}
+
+function uniqueOptions(options: INodePropertyOptions[]): INodePropertyOptions[] {
+	const seen = new Set<string>();
+	return options.filter((option) => {
+		const key = String(option.value);
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
+}
+
+async function loadHubsMulti(thisArg: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+	const credentials = await thisArg.getCredentials('autodeskApsApi');
+	const { client, accessToken, xUserId } = await createApsContext(credentials);
+	const response = await client.getHubs({ accessToken, xUserId });
+	return (response.data ?? [])
+		.filter((hub) => resourceId(hub).startsWith('b.'))
+		.map((hub) => ({ name: displayName(hub), value: resourceId(hub) }));
+}
+
+async function loadProjectsMulti(thisArg: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+	const hubIds = getMultiParameter(thisArg, 'hubIds');
+	if (hubIds.length === 0) return [];
+	const credentials = await thisArg.getCredentials('autodeskApsApi');
+	const { client, accessToken, xUserId } = await createApsContext(credentials);
+	const options: INodePropertyOptions[] = [];
+	for (const hubId of hubIds) {
+		const response = await loadAllPages(async (pageNumber) =>
+			await client.getHubProjects(hubId, {
+				accessToken,
+				xUserId,
+				pageNumber,
+				pageLimit: 200,
+			}),
+		);
+		options.push(
+			...(response.data ?? [])
+				.filter(isAccProject)
+				.map((project) => ({ name: displayName(project), value: resourceId(project) })),
+		);
+	}
+	return uniqueOptions(options);
+}
+
+async function loadFoldersMulti(thisArg: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+	const hubIds = getMultiParameter(thisArg, 'hubIds');
+	const projectIds = getMultiParameter(thisArg, 'projectIds');
+	if (hubIds.length === 0 || projectIds.length === 0) return [];
+	const credentials = await thisArg.getCredentials('autodeskApsApi');
+	const { client, accessToken, xUserId } = await createApsContext(credentials);
+	const options: INodePropertyOptions[] = [];
+	for (let index = 0; index < projectIds.length; index++) {
+		const hubId = broadcastValue(hubIds, index);
+		if (!hubId) continue;
+		const response = await client.getProjectTopFolders(hubId, projectIds[index], {
+			accessToken,
+			xUserId,
+		});
+		options.push(
+			...(response.data ?? [])
+				.filter((folder) => resourceType(folder) === 'folders')
+				.map((folder) => ({ name: displayName(folder), value: resourceId(folder) })),
+		);
+	}
+	return uniqueOptions(options);
+}
+
+function selectedMultiBrowseFolders(thisArg: ILoadOptionsFunctions | IExecuteFunctions, itemIndex?: number): string[] {
+	let selected = getMultiParameter(thisArg, 'folderIds', itemIndex);
+	for (let level = 1; level <= SUBFOLDER_LEVELS; level++) {
+		const current = getMultiParameter(thisArg, `subfolderIds${level}`, itemIndex);
+		if (current.length === 0) break;
+		selected = current;
+	}
+	return selected;
+}
+
+async function loadDirectResourcesMulti(
+	thisArg: ILoadOptionsFunctions,
+	parentIds: string[],
+	wantedType: 'folders' | 'items',
+): Promise<INodePropertyOptions[]> {
+	if (parentIds.length === 0) return [];
+	const projectIds = getMultiParameter(thisArg, 'projectIds');
+	if (projectIds.length === 0) return [];
+	const credentials = await thisArg.getCredentials('autodeskApsApi');
+	const { client, accessToken, xUserId } = await createApsContext(credentials);
+	const options: INodePropertyOptions[] = [];
+	for (let index = 0; index < parentIds.length; index++) {
+		const projectId = broadcastValue(projectIds, index);
+		if (!projectId) continue;
+		const response = await loadAllPages(async (pageNumber) =>
+			await client.getFolderContents(projectId, parentIds[index], {
+				accessToken,
+				xUserId,
+				pageNumber,
+				pageLimit: 200,
+			}),
+		);
+		options.push(
+			...(response.data ?? [])
+				.filter((resource) => resourceType(resource) === wantedType)
+				.map((resource) => ({ name: displayName(resource), value: resourceId(resource) })),
+		);
+	}
+	return uniqueOptions(options);
+}
+
+async function loadSubfoldersMulti(
+	thisArg: ILoadOptionsFunctions,
+	level: number,
+): Promise<INodePropertyOptions[]> {
+	const parentName = level === 1 ? 'folderIds' : `subfolderIds${level - 1}`;
+	return await loadDirectResourcesMulti(
+		thisArg,
+		getMultiParameter(thisArg, parentName),
+		'folders',
+	);
+}
+
+async function loadItemsMulti(thisArg: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+	return await loadDirectResourcesMulti(thisArg, selectedMultiBrowseFolders(thisArg), 'items');
+}
+
+async function loadVersionsMulti(thisArg: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+	const projectIds = getMultiParameter(thisArg, 'projectIds');
+	const itemIds = getMultiParameter(thisArg, 'itemIds');
+	if (projectIds.length === 0 || itemIds.length === 0) return [];
+	const credentials = await thisArg.getCredentials('autodeskApsApi');
+	const { client, accessToken, xUserId } = await createApsContext(credentials);
+	const options: INodePropertyOptions[] = [];
+	for (let index = 0; index < itemIds.length; index++) {
+		const projectId = broadcastValue(projectIds, index);
+		if (!projectId) continue;
+		const response = await loadAllPages(async (pageNumber) =>
+			await client.getItemVersions(projectId, itemIds[index], {
+				accessToken,
+				xUserId,
+				pageNumber,
+				pageLimit: 200,
+			}),
+		);
+		const versions = [...(response.data ?? [])].sort(
+			(left, right) => Number(versionDisplay(right).number) - Number(versionDisplay(left).number),
+		);
+		options.push(
+			...versions.map((version) => {
+				const details = versionDisplay(version);
+				return {
+					name: `${displayName(version)} — Version ${details.number} — ${details.date}`,
+					value: resourceId(version),
+				};
+			}),
+		);
+	}
+	return uniqueOptions(options);
+}
+
+function createMultiSubfolderLoadMethods(): Record<
+	string,
+	(this: ILoadOptionsFunctions) => Promise<INodePropertyOptions[]>
+> {
+	const methods: Record<
+		string,
+		(this: ILoadOptionsFunctions) => Promise<INodePropertyOptions[]>
+	> = {};
+	for (let level = 1; level <= SUBFOLDER_LEVELS; level++) {
+		methods[`loadSubfolders${level}`] = async function (this: ILoadOptionsFunctions) {
+			return await loadSubfoldersMulti(this, level);
+		};
+	}
+	return methods;
+}
+
+const multiSubfolderLoadMethods = createMultiSubfolderLoadMethods();
+
+interface BatchField {
+	name: string;
+	values: unknown[];
+	required?: boolean;
+	defaultValue?: unknown;
+}
+
+export function createOrderedBatches(node: INode, fields: BatchField[]): Array<Record<string, unknown>> {
+	const batchSize = Math.max(1, ...fields.map((field) => field.values.length));
+	for (const field of fields) {
+		if (field.required && field.values.length === 0) {
+			throw new NodeOperationError(node, `${field.name} requires at least one value`);
+		}
+		if (field.values.length > 1 && field.values.length !== batchSize) {
+			throw new NodeOperationError(
+				node,
+				`${field.name} has ${field.values.length} values; expected 1 or ${batchSize} to preserve ordered list alignment`,
+			);
+		}
+	}
+	return Array.from({ length: batchSize }, (_, index) =>
+		Object.fromEntries(
+			fields.map((field) => [
+				field.name,
+				field.values.length === 0
+					? field.defaultValue
+					: field.values.length === 1
+						? field.values[0]
+						: field.values[index],
+			]),
+		),
+	);
+}
+
+function executionParameterValues(
+	thisArg: IExecuteFunctions,
+	legacyName: string,
+	multiName: string,
+	itemIndex: number,
+	defaultValue: unknown = '',
+	preserveEmpty = false,
+): unknown[] {
+	const name = thisArg.getNode().typeVersion >= MULTI_INPUT_VERSION ? multiName : legacyName;
+	const values = parameterValues(thisArg.getNodeParameter(name, itemIndex, defaultValue));
+	return preserveEmpty
+		? values
+		: values.filter((value) => String(value ?? '').trim() !== '');
+}
+
+function getPathValue(value: unknown, path: string): unknown {
+	if (!path) return value;
+	return path.split('.').reduce<unknown>((current, part) => {
+		if (current === null || current === undefined || typeof current !== 'object') return undefined;
+		if (Array.isArray(current)) {
+			const index = Number.parseInt(part, 10);
+			return Number.isNaN(index) ? undefined : current[index];
+		}
+		return (current as Record<string, unknown>)[part];
+	}, value);
+}
+
+function setPathValue(target: IDataObject, path: string, value: unknown): void {
+	const parts = path.split('.').filter(Boolean);
+	const unsafeKeys = new Set(['__proto__', 'prototype', 'constructor']);
+	if (parts.length === 0 || parts.some((part) => unsafeKeys.has(part))) return;
+	let current: IDataObject = target;
+	for (let index = 0; index < parts.length - 1; index++) {
+		const part = parts[index];
+		const next = current[part];
+		if (!next || typeof next !== 'object' || Array.isArray(next)) current[part] = {};
+		current = current[part] as IDataObject;
+	}
+	current[parts[parts.length - 1]] = value as IDataObject[string];
+}
+
+function operationData(operation: string, result: unknown): unknown[] {
+	if (!result || typeof result !== 'object') return [result];
+	const object = result as Record<string, unknown>;
+	let data: unknown;
+	if ('data' in object) data = object.data;
+	else if (operation === 'getProjectTree' || operation === 'getFolderContents') data = object.tree;
+	else if (operation === 'uploadFile') {
+		const response = (object.item ?? object.version) as Record<string, unknown> | undefined;
+		data = response?.data ?? response ?? result;
+	} else data = result;
+	return Array.isArray(data) ? data : [data];
+}
+
+function jsonForRecord(record: unknown): IDataObject {
+	if (record && typeof record === 'object' && !Array.isArray(record)) return asJson(record);
+	return { data: JSON.parse(JSON.stringify(record ?? null)) as IDataObject[string] };
+}
+
+function mappedRecord(
+	record: unknown,
+	mappingsValue: unknown,
+	customMappingsValue: unknown,
+): IDataObject {
+	const result: IDataObject = {};
+	const collection = mappingsValue as { values?: Array<{ source?: unknown; target?: unknown }> };
+	for (const mapping of collection?.values ?? []) {
+		const source = String(mapping.source ?? '').trim();
+		if (!source) continue;
+		const target = String(mapping.target ?? '').trim() || source;
+		const value = getPathValue(record, source);
+		if (value !== undefined) setPathValue(result, target, value);
+	}
+	const parsedCustom = parseParameterValue(customMappingsValue);
+	if (parsedCustom && typeof parsedCustom === 'object' && !Array.isArray(parsedCustom)) {
+		for (const [target, source] of Object.entries(parsedCustom as Record<string, unknown>)) {
+			const value = getPathValue(record, String(source));
+			if (value !== undefined) setPathValue(result, target, value);
+		}
+	}
+	return result;
+}
+
+export function outputJsonRecords(
+	operation: string,
+	result: unknown,
+	outputMode: string,
+	mappingsValue: unknown,
+	customMappingsValue: unknown,
+): IDataObject[] {
+	if (outputMode === 'full') return [asJson(result)];
+	const records = operationData(operation, result);
+	if (outputMode === 'fields') {
+		return records.map((record) => mappedRecord(record, mappingsValue, customMappingsValue));
+	}
+	return records.map(jsonForRecord);
+}
+
 export class AutodeskApsDataManagement implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Autodesk APS Data Management (Community)',
@@ -870,8 +1495,8 @@ export class AutodeskApsDataManagement implements INodeType {
 			dark: 'file:AutodeskApsDataManagement.dark.svg',
 		},
 		group: ['transform'],
-		version: [1, LAZY_BROWSER_VERSION],
-		defaultVersion: LAZY_BROWSER_VERSION,
+		version: [1, LAZY_BROWSER_VERSION, MULTI_INPUT_VERSION],
+		defaultVersion: MULTI_INPUT_VERSION,
 		subtitle: '={{$parameter["operation"]}}',
 		description:
 			'Unofficial community node to read, upload, and download Autodesk Construction Cloud Docs data',
@@ -904,6 +1529,51 @@ export class AutodeskApsDataManagement implements INodeType {
 						message: error instanceof Error ? error.message : 'Authentication failed',
 					};
 				}
+			},
+		},
+		loadOptions: {
+			...multiSubfolderLoadMethods,
+			async loadHubsMulti(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+				return await loadHubsMulti(this);
+			},
+			async loadProjectsMulti(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+				return await loadProjectsMulti(this);
+			},
+			async loadFoldersMulti(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+				return await loadFoldersMulti(this);
+			},
+			async loadItemsMulti(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+				return await loadItemsMulti(this);
+			},
+			async loadVersionsMulti(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+				return await loadVersionsMulti(this);
+			},
+			async loadCommonOutputFields(
+				this: ILoadOptionsFunctions,
+			): Promise<INodePropertyOptions[]> {
+				const operation = String(this.getNodeParameter('operation', undefined));
+				const scanFullTree =
+					operation === 'getFolderContents'
+						? Boolean(this.getNodeParameter('scanFullTree', undefined))
+						: false;
+				if (operation === 'getProjectTree' || (operation === 'getFolderContents' && scanFullTree)) {
+					return [
+						{ name: 'ID', value: 'id' },
+						{ name: 'Type', value: 'type' },
+						{ name: 'Name', value: 'name' },
+						{ name: 'Path', value: 'path' },
+						{ name: 'Depth', value: 'depth' },
+						{ name: 'Parent ID', value: 'parentId' },
+						{ name: 'Original Resource', value: 'resource' },
+					];
+				}
+				return [
+					{ name: 'ID', value: 'id' },
+					{ name: 'Type', value: 'type' },
+					{ name: 'Attributes', value: 'attributes' },
+					{ name: 'Relationships', value: 'relationships' },
+					{ name: 'Links', value: 'links' },
+				];
 			},
 		},
 		listSearch: {
@@ -1040,25 +1710,171 @@ export class AutodeskApsDataManagement implements INodeType {
 		}
 
 		for (let itemIndex = 0; itemIndex < inputItems.length; itemIndex++) {
+			const isMultiVersion = this.getNode().typeVersion >= MULTI_INPUT_VERSION;
+			const folderValues = FOLDER_FIELD_OPERATIONS.includes(operation)
+				? isMultiVersion
+					? selectedMultiBrowseFolders(this, itemIndex)
+					: [selectedExecutionFolder(this, itemIndex)].filter(Boolean)
+				: [];
+			let batches: Array<Record<string, unknown>>;
 			try {
-				const { client, accessToken, xUserId } = context;
-				const hubId = HUB_FIELD_OPERATIONS.includes(operation)
-					? resourceValue(this.getNodeParameter('hubId', itemIndex, ''))
-					: '';
-				const projectId = PROJECT_FIELD_OPERATIONS.includes(operation)
-					? resourceValue(this.getNodeParameter('projectId', itemIndex, ''))
-					: '';
-				const folderId = FOLDER_FIELD_OPERATIONS.includes(operation)
-					? selectedExecutionFolder(this, itemIndex)
-					: '';
-				const itemId = ITEM_OPERATIONS.includes(operation)
-					? resourceValue(this.getNodeParameter('itemId', itemIndex, ''))
-					: '';
-				const versionId = VERSION_OPERATIONS.includes(operation)
-					? resourceValue(this.getNodeParameter('versionId', itemIndex, ''))
-					: '';
-				const rawOptions = this.getNodeParameter('additionalOptions', itemIndex, '{}');
-				const parsedOptions = typeof rawOptions === 'string' ? JSON.parse(rawOptions) : rawOptions;
+				batches = createOrderedBatches(this.getNode(), [
+					{
+						name: 'hubId',
+						values: HUB_REQUIRED_OPERATIONS.includes(operation)
+							? executionParameterValues(this, 'hubId', 'hubIds', itemIndex)
+							: [],
+						required: HUB_REQUIRED_OPERATIONS.includes(operation),
+						defaultValue: '',
+					},
+					{
+						name: 'projectId',
+						values: PROJECT_FIELD_OPERATIONS.includes(operation)
+							? executionParameterValues(this, 'projectId', 'projectIds', itemIndex)
+							: [],
+						required: PROJECT_FIELD_OPERATIONS.includes(operation),
+						defaultValue: '',
+					},
+					{
+						name: 'folderId',
+						values: folderValues,
+						required: FOLDER_FIELD_OPERATIONS.includes(operation),
+						defaultValue: '',
+					},
+					{
+						name: 'itemId',
+						values: ITEM_OPERATIONS.includes(operation)
+							? executionParameterValues(this, 'itemId', 'itemIds', itemIndex)
+							: [],
+						required: ITEM_OPERATIONS.includes(operation),
+						defaultValue: '',
+					},
+					{
+						name: 'versionId',
+						values: VERSION_OPERATIONS.includes(operation)
+							? executionParameterValues(this, 'versionId', 'versionIds', itemIndex)
+							: [],
+						required: VERSION_OPERATIONS.includes(operation),
+						defaultValue: '',
+					},
+					{
+						name: 'downloadId',
+						values:
+							operation === 'getDownload'
+								? executionParameterValues(this, 'downloadId', 'downloadIds', itemIndex)
+								: [],
+						required: operation === 'getDownload',
+						defaultValue: '',
+					},
+					{
+						name: 'jobId',
+						values:
+							operation === 'getDownloadJob'
+								? executionParameterValues(this, 'jobId', 'jobIds', itemIndex)
+								: [],
+						required: operation === 'getDownloadJob',
+						defaultValue: '',
+					},
+					{
+						name: 'existingItemId',
+						values:
+							operation === 'uploadFile'
+								? executionParameterValues(
+										this,
+										'existingItemId',
+										'existingItemIds',
+										itemIndex,
+										[],
+										true,
+									)
+								: [],
+						defaultValue: '',
+					},
+					{
+						name: 'inputBinaryField',
+						values:
+							operation === 'uploadFile'
+								? executionParameterValues(
+										this,
+										'inputBinaryField',
+										'inputBinaryFields',
+										itemIndex,
+										'data',
+									)
+								: [],
+						required: operation === 'uploadFile',
+						defaultValue: 'data',
+					},
+					{
+						name: 'fileName',
+						values:
+							operation === 'uploadFile'
+								? executionParameterValues(
+										this,
+										'fileName',
+										'fileNames',
+										itemIndex,
+										[],
+										true,
+									)
+								: [],
+						defaultValue: '',
+					},
+					{
+						name: 'fileType',
+						values:
+							operation === 'uploadFile'
+								? executionParameterValues(
+										this,
+										'accFileType',
+										'accFileTypes',
+										itemIndex,
+										'File',
+									)
+								: [],
+						required: operation === 'uploadFile',
+						defaultValue: 'File',
+					},
+					{
+						name: 'outputBinaryField',
+						values:
+							operation === 'downloadFile'
+								? executionParameterValues(
+										this,
+										'outputBinaryField',
+										'outputBinaryFields',
+										itemIndex,
+										'data',
+									)
+								: [],
+						required: operation === 'downloadFile',
+						defaultValue: 'data',
+					},
+					{
+						name: 'additionalOptions',
+						values: parameterValues(
+							this.getNodeParameter('additionalOptions', itemIndex, '{}'),
+						),
+						defaultValue: {},
+					},
+				]);
+			} catch (error) {
+				throw new NodeOperationError(
+					this.getNode(),
+					error instanceof Error ? error : new Error(String(error)),
+					{ itemIndex },
+				);
+			}
+
+			for (const batch of batches) {
+				try {
+					const { client, accessToken, xUserId } = context;
+					const hubId = String(batch.hubId ?? '');
+					const projectId = String(batch.projectId ?? '');
+					const folderId = String(batch.folderId ?? '');
+					const itemId = String(batch.itemId ?? '');
+					const versionId = String(batch.versionId ?? '');
+					const parsedOptions = batch.additionalOptions;
 				const optionalArgs = {
 					...(parsedOptions as IDataObject),
 					accessToken,
@@ -1068,18 +1884,8 @@ export class AutodeskApsDataManagement implements INodeType {
 				const allPageArgs: Record<string, unknown> = { ...optionalArgs };
 				delete allPageArgs.pageNumber;
 				delete allPageArgs.pageLimit;
-				if (HUB_REQUIRED_OPERATIONS.includes(operation) && !hubId) {
-					throw new NodeOperationError(this.getNode(), 'ACC Hub is required for this operation', {
-						itemIndex,
-					});
-				}
-				if (FOLDER_FIELD_OPERATIONS.includes(operation) && !folderId) {
-					throw new NodeOperationError(this.getNode(), 'Folder ID is required for this operation', {
-						itemIndex,
-					});
-				}
-
 				let result: unknown;
+				let binaryOutput: INodeExecutionData['binary'];
 				switch (operation) {
 					case 'getHub': result = await client.getHub(hubId, optionalArgs); break;
 					case 'getHubs': {
@@ -1120,8 +1926,8 @@ export class AutodeskApsDataManagement implements INodeType {
 						};
 						break;
 					}
-					case 'getDownload': result = await client.getDownload(projectId, String(this.getNodeParameter('downloadId', itemIndex)), optionalArgs); break;
-					case 'getDownloadJob': result = await client.getDownloadJob(projectId, String(this.getNodeParameter('jobId', itemIndex)), optionalArgs); break;
+					case 'getDownload': result = await client.getDownload(projectId, String(batch.downloadId), optionalArgs); break;
+					case 'getDownloadJob': result = await client.getDownloadJob(projectId, String(batch.jobId), optionalArgs); break;
 					case 'getFolder': result = await client.getFolder(projectId, folderId, optionalArgs); break;
 					case 'getFolderContents': {
 						const scanFullTree = Boolean(
@@ -1188,14 +1994,12 @@ export class AutodeskApsDataManagement implements INodeType {
 					case 'getVersionRelationshipsLinks': result = await client.getVersionRelationshipsLinks(projectId, versionId, optionalArgs); break;
 					case 'getVersionRelationshipsRefs': result = await client.getVersionRelationshipsRefs(projectId, versionId, optionalArgs); break;
 					case 'uploadFile': {
-						const binaryField = String(this.getNodeParameter('inputBinaryField', itemIndex));
+						const binaryField = String(batch.inputBinaryField);
 						const binary = inputItems[itemIndex].binary?.[binaryField];
 						if (!binary) throw new NodeOperationError(this.getNode(), `Binary field "${binaryField}" was not found`, { itemIndex });
-						const fileName = String(this.getNodeParameter('fileName', itemIndex, '')).trim() || binary.fileName || 'upload.bin';
-						const existingItemId = resourceValue(
-							this.getNodeParameter('existingItemId', itemIndex, ''),
-						).trim();
-						const fileType = String(this.getNodeParameter('accFileType', itemIndex, 'File'));
+						const fileName = String(batch.fileName ?? '').trim() || binary.fileName || 'upload.bin';
+						const existingItemId = String(batch.existingItemId ?? '').trim();
+						const fileType = String(batch.fileType ?? 'File');
 						const storagePayload: StoragePayload = {
 							jsonapi: { version: '1.0' },
 							data: {
@@ -1247,15 +2051,37 @@ export class AutodeskApsDataManagement implements INodeType {
 						const storageUrn = storageUrnFromVersion(version);
 						const downloaded = await downloadBuffer(storageUrn, accessToken);
 						const fileName = String(version.data?.attributes?.name ?? version.data?.attributes?.displayName ?? 'download.bin');
-						const binaryField = String(this.getNodeParameter('outputBinaryField', itemIndex));
+						const binaryField = String(batch.outputBinaryField);
 						const prepared = await this.helpers.prepareBinaryData(downloaded.buffer, fileName, downloaded.contentType);
-						outputItems.push({ json: asJson(version), binary: { [binaryField]: prepared }, pairedItem: { item: itemIndex } });
-						continue;
+						result = version;
+						binaryOutput = { [binaryField]: prepared };
+						break;
 					}
 					default: throw new NodeOperationError(this.getNode(), `Unsupported operation: ${operation}`, { itemIndex });
 				}
 
-				outputItems.push({ json: asJson(result), pairedItem: { item: itemIndex } });
+				const outputMode = String(this.getNodeParameter('outputMode', itemIndex, 'full'));
+				const mappingsValue =
+					outputMode === 'fields'
+						? this.getNodeParameter('outputMappings', itemIndex, {})
+						: {};
+				const customMappingsValue =
+					outputMode === 'fields'
+						? this.getNodeParameter('customOutputMappings', itemIndex, '{}')
+						: '{}';
+				for (const json of outputJsonRecords(
+					operation,
+					result,
+					outputMode,
+					mappingsValue,
+					customMappingsValue,
+				)) {
+					outputItems.push({
+						json,
+						...(binaryOutput ? { binary: binaryOutput } : {}),
+						pairedItem: { item: itemIndex },
+					});
+				}
 			} catch (error) {
 				if (this.continueOnFail()) {
 					outputItems.push({ json: { error: error instanceof Error ? error.message : String(error) }, pairedItem: { item: itemIndex } });
@@ -1266,6 +2092,7 @@ export class AutodeskApsDataManagement implements INodeType {
 					error instanceof Error ? error : new Error(String(error)),
 					{ itemIndex },
 				);
+				}
 			}
 		}
 

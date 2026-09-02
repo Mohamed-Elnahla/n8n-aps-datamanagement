@@ -31,7 +31,7 @@
     "lint": "n8n-node lint",
     "lintfix": "n8n-node lint --fix",
     "typecheck": "tsc --noEmit",
-    "test": "npm run typecheck && npm run build",
+    "test": "npm run typecheck && npm run build && node --test tests/*.test.js",
     "release": "n8n-node release",
     "prepublishOnly": "n8n-node prerelease"
   },

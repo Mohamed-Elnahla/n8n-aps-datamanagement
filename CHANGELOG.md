@@ -6,6 +6,16 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Added node version 3 with ordered multi-select inputs across all APS identifiers and transfer fields.
+- Added full-response, data-only, and per-resource field-mapping output modes with common-field UI controls and custom dotted-path JSON mappings.
+- Added regression tests for ordered broadcasting, ambiguous-list rejection, collection ordering, field mapping, and backward-compatible full output.
+
+### Changed
+
+- List execution now preserves incoming-item, selected-input, and APS collection order without creating implicit Cartesian products.
+
 ## [0.2.2] - 2026-09-02
 
 ### Added

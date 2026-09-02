@@ -27,6 +27,8 @@ npm publisher: `mohamed.elnahla`
 - ACC-focused hub/project browsing; non-ACC projects are filtered out.
 - Searchable **From List** selectors that display Autodesk names instead of IDs.
 - **By ID** selector modes compatible with n8n expressions and upstream node output.
+- Ordered multi-selection for hubs, projects, folders, items, versions, download/job IDs, and transfer fields.
+- Output controls for full responses, data-only items, or user-mapped data fields.
 - Encrypted n8n credentials for APS client ID and client secret.
 - Short-lived 2-legged OAuth tokens generated at execution time.
 - Optional ACC `x-user-id` context.
@@ -106,6 +108,18 @@ New nodes use a lazy path browser. Choose the hub and project first, select a to
 **By ID** accepts both literal IDs and expressions such as `{{$json.folderId}}`, `{{$json.itemId}}`, or `{{$json.versionId}}`.
 
 Existing version 1 node instances retain the original full-project browser. Upgrade the node version to use lazy browsing; saved IDs and expressions continue to execute unchanged.
+
+Node version 3 adds native multi-select controls. Every selected list is processed in its saved order. A one-value list is broadcast across longer lists; when two lists both contain multiple values, their lengths must match and values are paired by index. This prevents unintended Cartesian products. Versions 1 and 2 keep their original scalar UI and execution behavior.
+
+## Output controls
+
+Every operation has three output modes:
+
+- **Return Full Response** preserves the complete APS response and is the backward-compatible default.
+- **Return Only Data** emits each resource in `data` as an individual n8n item, preserving APS order. Tree scans emit their ordered root tree entries.
+- **Select and Map Data Fields** applies the configured mappings to every data resource. The source dropdown shows the common fields for the selected response type; custom dotted paths can be added with **Custom Data Field Mappings (JSON)**.
+
+For example, `{"fileName":"attributes.displayName","storage":"relationships.storage.data.id"}` maps two nested APS values to `fileName` and `storage`. Output items remain paired to the incoming n8n item.
 
 ## Operations
 
