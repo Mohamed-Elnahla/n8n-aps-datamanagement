@@ -223,19 +223,64 @@ const properties: INodeProperties[] = [
 	{
 		displayName: 'Item ID',
 		name: 'itemId',
-		type: 'string',
-		default: '',
+		type: 'resourceLocator',
+		default: { mode: 'list', value: '' },
 		required: true,
-		placeholder: 'urn:adsk.wipprod:dm.lineage:...',
+		description: 'Browse project files by path, or supply an item/file ID or expression',
+		typeOptions: { loadOptionsDependsOn: ['hubId.value', 'projectId.value'] },
+		modes: [
+			{
+				displayName: 'Browse',
+				name: 'list',
+				type: 'list',
+				typeOptions: {
+					searchListMethod: 'searchItems',
+					searchable: true,
+					slowLoadNotice: {
+						message: 'Large projects can take time to scan. Use "By ID" when you already know the item ID.',
+						timeout: 10_000,
+					},
+				},
+			},
+			{
+				displayName: 'By ID',
+				name: 'id',
+				type: 'string',
+				placeholder: 'urn:adsk.wipprod:dm.lineage:...',
+			},
+		],
 		displayOptions: { show: { operation: ITEM_OPERATIONS } },
 	},
 	{
 		displayName: 'Version ID',
 		name: 'versionId',
-		type: 'string',
-		default: '',
+		type: 'resourceLocator',
+		default: { mode: 'list', value: '' },
 		required: true,
-		placeholder: 'urn:adsk.wipprod:fs.file:vf....?version=1',
+		description:
+			'Browse files and their versions by version number and date, or supply a version ID or expression',
+		typeOptions: { loadOptionsDependsOn: ['hubId.value', 'projectId.value'] },
+		modes: [
+			{
+				displayName: 'Browse',
+				name: 'list',
+				type: 'list',
+				typeOptions: {
+					searchListMethod: 'searchVersions',
+					searchable: true,
+					slowLoadNotice: {
+						message: 'Loading versions requires scanning project files. Use "By ID" when you already know the version ID.',
+						timeout: 10_000,
+					},
+				},
+			},
+			{
+				displayName: 'By ID',
+				name: 'id',
+				type: 'string',
+				placeholder: 'urn:adsk.wipprod:fs.file:vf....?version=1',
+			},
+		],
 		displayOptions: { show: { operation: VERSION_OPERATIONS } },
 	},
 	{
@@ -283,9 +328,28 @@ const properties: INodeProperties[] = [
 	{
 		displayName: 'Existing Item ID',
 		name: 'existingItemId',
-		type: 'string',
-		default: '',
-		description: 'Set an item ID to upload a new version; leave empty to create a new item',
+		type: 'resourceLocator',
+		default: { mode: 'list', value: '' },
+		description:
+			'Choose an existing file to upload a new version, supply its item ID/expression, or leave empty to create a new item',
+		typeOptions: { loadOptionsDependsOn: ['hubId.value', 'projectId.value'] },
+		modes: [
+			{
+				displayName: 'Browse',
+				name: 'list',
+				type: 'list',
+				typeOptions: {
+					searchListMethod: 'searchItems',
+					searchable: true,
+				},
+			},
+			{
+				displayName: 'By ID',
+				name: 'id',
+				type: 'string',
+				placeholder: 'urn:adsk.wipprod:dm.lineage:...',
+			},
+		],
 		displayOptions: { show: { operation: ['uploadFile'] } },
 	},
 	{
@@ -325,6 +389,54 @@ function asJson(value: unknown): IDataObject {
 function storageUrnFromVersion(version: unknown): string {
 	const data = (version as { data?: { relationships?: { storage?: { data?: { id?: unknown } } } } }).data;
 	return String(data?.relationships?.storage?.data?.id ?? '');
+}
+
+function paginateBrowserResults(
+	entries: INodeListSearchResult['results'],
+	filter?: string,
+	paginationToken?: string,
+	sort = true,
+): INodeListSearchResult {
+	const query = (filter ?? '').trim().toLowerCase();
+	const filtered = entries.filter((entry) => entry.name.toLowerCase().includes(query));
+	if (sort) filtered.sort((left, right) => left.name.localeCompare(right.name));
+	const offset = Number.parseInt(paginationToken ?? '0', 10) || 0;
+	const pageSize = 200;
+	return {
+		results: filtered.slice(offset, offset + pageSize),
+		...(offset + pageSize < filtered.length
+			? { paginationToken: String(offset + pageSize) }
+			: {}),
+	};
+}
+
+async function loadProjectBrowser(thisArg: ILoadOptionsFunctions) {
+	const hubId = resourceValue(thisArg.getNodeParameter('hubId', undefined, { extractValue: true }));
+	const projectId = resourceValue(
+		thisArg.getNodeParameter('projectId', undefined, { extractValue: true }),
+	);
+	if (!hubId || !projectId) return undefined;
+	const credentials = await thisArg.getCredentials('autodeskApsApi');
+	const { client, accessToken, xUserId } = await createApsContext(credentials);
+	const requestArgs = { accessToken, ...(xUserId ? { xUserId } : {}) };
+	const topFolders = await client.getProjectTopFolders(hubId, projectId, requestArgs);
+	const scan = await buildFolderTree(client, projectId, topFolders.data ?? [], requestArgs);
+	return { client, projectId, requestArgs, scan };
+}
+
+function versionDisplay(version: unknown): { number: string; date: string } {
+	if (!version || typeof version !== 'object') return { number: '?', date: 'Unknown date' };
+	const attributes = (version as { attributes?: unknown }).attributes;
+	if (!attributes || typeof attributes !== 'object') return { number: '?', date: 'Unknown date' };
+	const values = attributes as {
+		versionNumber?: unknown;
+		createTime?: unknown;
+		lastModifiedTime?: unknown;
+	};
+	return {
+		number: String(values.versionNumber ?? '?'),
+		date: String(values.createTime ?? values.lastModifiedTime ?? 'Unknown date'),
+	};
 }
 
 export class AutodeskApsDataManagement implements INodeType {
@@ -414,39 +526,73 @@ export class AutodeskApsDataManagement implements INodeType {
 				filter?: string,
 				paginationToken?: string,
 			): Promise<INodeListSearchResult> {
-				const hubId = resourceValue(this.getNodeParameter('hubId', undefined, { extractValue: true }));
-				const projectId = resourceValue(
-					this.getNodeParameter('projectId', undefined, { extractValue: true }),
-				);
-				if (!hubId || !projectId) return { results: [] };
-				const credentials = await this.getCredentials('autodeskApsApi');
-				const { client, accessToken, xUserId } = await createApsContext(credentials);
-				const requestArgs = { accessToken, ...(xUserId ? { xUserId } : {}) };
-				const topFolders = await client.getProjectTopFolders(hubId, projectId, requestArgs);
-				const scan = await buildFolderTree(client, projectId, topFolders.data ?? [], requestArgs);
-				const query = (filter ?? '').trim().toLowerCase();
+				const browser = await loadProjectBrowser(this);
+				if (!browser) return { results: [] };
 				const entries = [
-					...scan.folders.map((folder) => ({
+					...browser.scan.folders.map((folder) => ({
 						name: `Folder — ${folder.path}`,
 						value: folder.id,
 					})),
-					...scan.files.map((file) => ({
+					...browser.scan.files.map((file) => ({
 						name: `File — ${file.path}`,
 						value: file.id,
 						disabled: true,
 					})),
-				]
-					.filter((entry) => entry.name.toLowerCase().includes(query))
-					.sort((left, right) => left.name.localeCompare(right.name));
-				const offset = Number.parseInt(paginationToken ?? '0', 10) || 0;
-				const pageSize = 200;
-				const results = entries.slice(offset, offset + pageSize);
-				return {
-					results,
-					...(offset + pageSize < entries.length
-						? { paginationToken: String(offset + pageSize) }
-						: {}),
-				};
+				];
+				return paginateBrowserResults(entries, filter, paginationToken);
+			},
+			async searchItems(
+				this: ILoadOptionsFunctions,
+				filter?: string,
+				paginationToken?: string,
+			): Promise<INodeListSearchResult> {
+				const browser = await loadProjectBrowser(this);
+				if (!browser) return { results: [] };
+				const entries = [
+					...browser.scan.folders.map((folder) => ({
+						name: `Folder — ${folder.path}`,
+						value: folder.id,
+						disabled: true,
+					})),
+					...browser.scan.files.map((file) => ({
+						name: `File — ${file.path}`,
+						value: file.id,
+					})),
+				];
+				return paginateBrowserResults(entries, filter, paginationToken);
+			},
+			async searchVersions(
+				this: ILoadOptionsFunctions,
+				filter?: string,
+				paginationToken?: string,
+			): Promise<INodeListSearchResult> {
+				const browser = await loadProjectBrowser(this);
+				if (!browser) return { results: [] };
+				const entries: INodeListSearchResult['results'] = [];
+				const files = [...browser.scan.files].sort((left, right) =>
+					left.path.localeCompare(right.path),
+				);
+				for (const file of files) {
+					entries.push({ name: `File — ${file.path}`, value: file.id, disabled: true });
+					const versions = await loadAllPages(async (pageNumber) =>
+						await browser.client.getItemVersions(browser.projectId, file.id, {
+							...browser.requestArgs,
+							pageNumber,
+							pageLimit: 200,
+						}),
+					);
+					const sortedVersions = [...(versions.data ?? [])].sort((left, right) =>
+						Number(versionDisplay(right).number) - Number(versionDisplay(left).number),
+					);
+					for (const version of sortedVersions) {
+						const details = versionDisplay(version);
+						entries.push({
+							name: `File — ${file.path} › Version ${details.number} — ${details.date}`,
+							value: resourceId(version),
+						});
+					}
+				}
+				return paginateBrowserResults(entries, filter, paginationToken, false);
 			},
 		},
 	};
@@ -479,8 +625,12 @@ export class AutodeskApsDataManagement implements INodeType {
 				const folderId = FOLDER_FIELD_OPERATIONS.includes(operation)
 					? resourceValue(this.getNodeParameter('folderId', itemIndex, ''))
 					: '';
-				const itemId = String(this.getNodeParameter('itemId', itemIndex, ''));
-				const versionId = String(this.getNodeParameter('versionId', itemIndex, ''));
+				const itemId = ITEM_OPERATIONS.includes(operation)
+					? resourceValue(this.getNodeParameter('itemId', itemIndex, ''))
+					: '';
+				const versionId = VERSION_OPERATIONS.includes(operation)
+					? resourceValue(this.getNodeParameter('versionId', itemIndex, ''))
+					: '';
 				const rawOptions = this.getNodeParameter('additionalOptions', itemIndex, '{}');
 				const parsedOptions = typeof rawOptions === 'string' ? JSON.parse(rawOptions) : rawOptions;
 				const optionalArgs = {
@@ -611,7 +761,9 @@ export class AutodeskApsDataManagement implements INodeType {
 						const binary = inputItems[itemIndex].binary?.[binaryField];
 						if (!binary) throw new NodeOperationError(this.getNode(), `Binary field "${binaryField}" was not found`, { itemIndex });
 						const fileName = String(this.getNodeParameter('fileName', itemIndex, '')).trim() || binary.fileName || 'upload.bin';
-						const existingItemId = String(this.getNodeParameter('existingItemId', itemIndex, '')).trim();
+						const existingItemId = resourceValue(
+							this.getNodeParameter('existingItemId', itemIndex, ''),
+						).trim();
 						const fileType = String(this.getNodeParameter('accFileType', itemIndex, 'File'));
 						const storagePayload: StoragePayload = {
 							jsonapi: { version: '1.0' },

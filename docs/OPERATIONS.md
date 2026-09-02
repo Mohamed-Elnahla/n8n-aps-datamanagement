@@ -9,11 +9,18 @@ The node wraps the getter surface of `DataManagementClient` from `@aps_sdk/data-
 | ACC Hub | Search by display name or supply a `b.`-prefixed Data Management hub ID |
 | ACC Project | Search by display name or supply a `b.`-prefixed Data Management project ID |
 | Folder ID | Browse by full path or supply a Data Management folder URN/expression |
-| Item ID | Data Management lineage/item URN |
-| Version ID | URL-safe Data Management version URN |
+| Item ID | Browse files by full path or supply a Data Management lineage/item URN/expression |
+| Version ID | Browse files and their versions or supply a URL-safe Data Management version URN/expression |
 | Additional Options (JSON) | SDK optional arguments for the selected getter |
 
-Hub and project list results show human-readable names; the stored value is the Autodesk ID. The **By ID** mode accepts n8n expressions. The folder browser scans all accessible top folders, displays folders and files by full path, allows folder selection, and returns the folder ID to execution logic. Files are visible but disabled because these operations require a folder ID.
+Hub and project list results show human-readable names; the stored value is the Autodesk ID. The **By ID** mode accepts n8n expressions.
+
+Resource browsers scan all accessible top folders and display full paths:
+
+- Folder selectors allow folders to be selected and show files as disabled context rows.
+- Item/file selectors show folders as disabled context rows and return the selected file's item ID.
+- Version selectors group files with their selectable versions. Version rows show version number and creation date and return the version ID.
+- Upload File's optional Existing Item ID uses the same item/file selector; leaving it empty creates a new item.
 
 ## Getter mapping
 

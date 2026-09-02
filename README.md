@@ -88,14 +88,21 @@ See [docs/AUTHENTICATION.md](docs/AUTHENTICATION.md) for scopes, ACC provisionin
 
 ## Resource selection
 
-Hub, project, and folder fields provide two modes:
+Hub, project, folder, item/file, and version fields provide two modes:
 
 - **From List**: searchable, with human-readable account/project names.
 - **By ID**: accepts a literal Data Management ID or an expression such as `{{$json.projectId}}`.
 
 To browse projects, choose an ACC hub first. When a project ID comes from another node, switch Project to **By ID**; the hub can remain empty for operations whose APS endpoint only requires a project ID.
 
-The folder browser scans the selected project's hierarchy and shows searchable full paths. Folders are selectable and store their Autodesk ID; files are shown for context but disabled because folder operations require a folder ID. Choose the hub and project first. **By ID** accepts both literal IDs and expressions such as `{{$json.folderId}}`.
+The resource browsers scan the selected project's hierarchy and show searchable full paths. Choose the hub and project first.
+
+- Folder fields allow folder selection and show files as disabled context rows.
+- Item/file fields allow file selection and show folders as disabled context rows.
+- Version fields group every file with its selectable versions, showing the version number and creation date while storing the version ID.
+- Upload File's optional **Existing Item ID** uses the item/file browser so an existing file can be selected when creating a new version.
+
+**By ID** accepts both literal IDs and expressions such as `{{$json.folderId}}`, `{{$json.itemId}}`, or `{{$json.versionId}}`.
 
 ## Operations
 
