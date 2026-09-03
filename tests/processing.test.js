@@ -9,6 +9,7 @@ const {
 	createOrderedBatches,
 	decodeContextualSelection,
 	encodeContextualSelection,
+	getMultiSelections,
 	outputJsonRecords,
 } = require('../dist/nodes/AutodeskApsDataManagement/AutodeskApsDataManagement.node.js');
 
@@ -108,6 +109,21 @@ test('contextual selections preserve their exact hub and project through every l
 	};
 	assert.deepEqual(decodeContextualSelection(encodeContextualSelection(selection)), selection);
 	assert.deepEqual(decodeContextualSelection('raw-folder-id'), { id: 'raw-folder-id' });
+});
+
+test('multi-option parameters are read without resource-locator extraction', () => {
+	let receivedArguments;
+	const executionContext = {
+		getNodeParameter(...args) {
+			receivedArguments = args;
+			return ['hub-a', encodeContextualSelection({ id: 'hub-b' })];
+		},
+	};
+	assert.deepEqual(getMultiSelections(executionContext, 'hubIds', 0), [
+		{ id: 'hub-a' },
+		{ id: 'hub-b' },
+	]);
+	assert.deepEqual(receivedArguments, ['hubIds', 0]);
 });
 
 test('execution derives projects from resource context when projects contribute unequal counts', () => {

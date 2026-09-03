@@ -6,6 +6,13 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-09-03
+
+### Fixed
+
+- Stopped passing resource-locator extraction options when reading version-3 `multiOptions`, fixing `NodeOperationError: Could not find property` on n8n 2.36.7.
+- Stopped execution from reading hidden hub and project controls for operations that do not use them.
+
 ## [0.3.3] - 2026-09-03
 
 ### Fixed
@@ -106,7 +113,8 @@ The project follows [Semantic Versioning](https://semver.org/).
 - Complete installation, authentication, operation, development, and publishing documentation.
 - GitHub Actions CI and provenance-enabled npm publishing.
 
-[Unreleased]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.3.0...v0.3.1

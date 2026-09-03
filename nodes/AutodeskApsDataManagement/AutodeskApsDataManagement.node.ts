@@ -1246,14 +1246,14 @@ export function contextualExecutionValues(
 	return { hubIds: contextualHubIds, projectIds: contextualProjectIds };
 }
 
-function getMultiSelections(
+export function getMultiSelections(
 	thisArg: ILoadOptionsFunctions | IExecuteFunctions,
 	name: string,
 	itemIndex?: number,
 ): ContextualSelection[] {
-	return stringParameterValues(
-		thisArg.getNodeParameter(name, itemIndex, [], { extractValue: true }),
-	).map(decodeContextualSelection);
+	return stringParameterValues(thisArg.getNodeParameter(name, itemIndex)).map(
+		decodeContextualSelection,
+	);
 }
 
 function getMultiParameter(
@@ -2077,8 +2077,12 @@ export class AutodeskApsDataManagement implements INodeType {
 
 		for (let itemIndex = 0; itemIndex < inputItems.length; itemIndex++) {
 			const isMultiVersion = this.getNode().typeVersion >= MULTI_INPUT_VERSION;
-			const configuredHubIds = isMultiVersion ? getMultiParameter(this, 'hubIds', itemIndex) : [];
-			let projectSelections = isMultiVersion
+			const configuredHubIds =
+				isMultiVersion && HUB_FIELD_OPERATIONS.includes(operation)
+					? getMultiParameter(this, 'hubIds', itemIndex)
+					: [];
+			let projectSelections =
+				isMultiVersion && PROJECT_FIELD_OPERATIONS.includes(operation)
 				? getMultiSelections(this, 'projectIds', itemIndex)
 				: [];
 			let folderSelections =
@@ -2162,9 +2166,11 @@ export class AutodeskApsDataManagement implements INodeType {
 							: projectSelections;
 			const contextualValues = contextualExecutionValues(projectSelections, contextualTargets);
 			const contextualHubValues =
-				contextualValues.hubIds.length > 0
-					? contextualValues.hubIds
-					: executionParameterValues(this, 'hubId', 'hubIds', itemIndex);
+				HUB_REQUIRED_OPERATIONS.includes(operation)
+					? contextualValues.hubIds.length > 0
+						? contextualValues.hubIds
+						: executionParameterValues(this, 'hubId', 'hubIds', itemIndex)
+					: [];
 			const folderValues = FOLDER_FIELD_OPERATIONS.includes(operation)
 				? isMultiVersion
 					? folderSelections.map((selection) => selection.id)
