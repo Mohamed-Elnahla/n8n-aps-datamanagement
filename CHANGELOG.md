@@ -6,6 +6,13 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-09-03
+
+### Fixed
+
+- Finalized exact hub/project context propagation and legacy plain-ID fallback resolution across every dependent selector and execution path.
+- Verified unequal per-project folder/item selections retain the correct labels, project association, API target, and output order.
+
 ## [0.3.2] - 2026-09-02
 
 ### Fixed
@@ -99,7 +106,8 @@ The project follows [Semantic Versioning](https://semver.org/).
 - Complete installation, authentication, operation, development, and publishing documentation.
 - GitHub Actions CI and provenance-enabled npm publishing.
 
-[Unreleased]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/mohamedelnahla/n8n-aps-datamanagement/compare/v0.2.2...v0.3.0
